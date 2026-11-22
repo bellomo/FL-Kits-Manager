@@ -4,8 +4,8 @@ country and federation, grouped by federation, country and league.
 The league is the team's domestic league in CompetitionEntry.bin, named as the game shows it: a game league by
 CompetitionRegulation.bin (ITALY_D1_LEAGUE -> Serie A TIM), a league Mod Studio adds as Mod Studio named it in map.txt;
 without a name, after the code (ITALY_D1_LEAGUE -> Italy D1). The country comes from the code name or, for the leagues
-Mod Studio adds, from its recipe; national teams are matched to a country by name; the federation is the country's in
-Country.bin."""
+Mod Studio adds, from its recipe; national teams are matched to a country by name (league "National team"); the
+federation is the country's in Country.bin."""
 
 import json
 
@@ -137,7 +137,7 @@ def test_game_leagues_are_named_as_the_game_shows_them(game):
 
 def test_national_teams_by_country_name(game):
     cat = catalog.load(full_game(game, [(12, "Italy", "ITA"), (99, "Atlantis", "ATL")], [(12, 33), (99, 33)]))
-    assert row(cat.get(12)) == (12, None, "Italy", "UEFA")
+    assert row(cat.get(12)) == (12, "National team", "Italy", "UEFA")
     assert row(cat.get(99)) == (99, None, None, None)
 
 
@@ -145,9 +145,9 @@ def test_national_teams_named_unlike_their_country(game):
     teams = [(39, "United States", "USA"), (53, "South Korea", "KOR"), (1012, "North Korea", "PRK")]
     cat = catalog.load(full_game(game, teams))
     assert [row(cat.get(i)) for i in (39, 53, 1012)] == [
-        (39, None, "USA", "CONCACAF"),
-        (53, None, "Republic of Korea", "AFC"),
-        (1012, None, "Korea DPR", "AFC"),
+        (39, "National team", "USA", "CONCACAF"),
+        (53, "National team", "Republic of Korea", "AFC"),
+        (1012, "National team", "Korea DPR", "AFC"),
     ]
 
 
@@ -199,7 +199,7 @@ def test_teams_grouped_by_federation_country_and_league(game):
     groups = cat.by_federation()
     assert list(groups) == ["CONCACAF", "UEFA", None]
     assert list(groups["UEFA"]) == ["Czech Republic", "Denmark", "Italy"]
-    assert list(groups["UEFA"]["Italy"]) == ["Italy D1", None]
+    assert list(groups["UEFA"]["Italy"]) == ["Italy D1", "National team"]
     assert [t.name for t in groups["UEFA"]["Italy"]["Italy D1"]] == ["Bologna FC", "Inter"]
     assert groups[None] == {None: {None: [cat.get(99)]}}
 

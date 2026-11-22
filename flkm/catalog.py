@@ -6,7 +6,7 @@ Read only.
   in the kitserver map (the most common one among its teams); else a name made from the code (ITALY_D1_LEAGUE ->
   Italy D1). A team in no league keeps the league of its map line, if any.
 - Country: from the code of a game league, or from the Mod Studio recipe for the leagues Mod Studio adds; a team in no
-  league whose name is a country's (a national team) gets that country.
+  league whose name is a country's (a national team) gets that country, and "National team" as its league.
 - Federation: the confederation of the country in Country.bin.
 """
 
@@ -19,6 +19,7 @@ from flkm.game import kitmap, kits, pesdb, recipe
 from flkm.game.files import GameFiles
 
 PESDB = "common/etc/pesdb/"
+NATIONAL_TEAM = "National team"  # the league shown for a national team (in no league, named after its country)
 TEAM_BIN = PESDB + "Team.bin"
 _CODE_ALIASES = {"US": "USA", "KSA": "SAUDI ARABIA"}  # game league codes that are not the country's name
 # national teams whose name is not the country's name in Country.bin
@@ -153,6 +154,8 @@ def load(game_dir: Path) -> Catalog:
             country = recipe_countries.get(league) if league else None
             national = _fold(_NATIONAL_ALIASES.get(t.name, t.name))
             key = _fold(country) if country else (national if not league and national in countries else None)
+            if key == national:
+                league = NATIONAL_TEAM
         c = countries.get(key) if key else None
         teams.append(
             Team(t.id, t.name, t.abbr, league, spelling.get(key) if key else None, c.federation if c else None)
