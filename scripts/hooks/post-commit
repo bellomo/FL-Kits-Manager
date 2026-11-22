@@ -1,0 +1,6 @@
+#!/bin/sh
+# Local build after every commit, in the background (the commit does not wait):
+# dist/FLKitsManager/FLKitsManager.exe, log in build/last-build.log.
+# Enable once per clone: git config core.hooksPath scripts/hooks
+mkdir -p build
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 > build/last-build.log 2>&1 &

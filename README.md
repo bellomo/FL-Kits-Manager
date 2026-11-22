@@ -27,6 +27,7 @@
 5. [Development](#development)
    - [Code layout](#code-layout)
    - [Build and release](#build-and-release)
+6. [License](#license)
 
 </details>
 
@@ -142,7 +143,9 @@ Development rules (test-driven, 100% line and branch coverage, no network in tes
 | `flkm/main_window.py` | Main window |
 | `flkm/__main__.py` | `python -m flkm` and the PyInstaller entry point |
 | `tests/` | One test file per module, `test_rule_*.py` for repository rules |
-| `.github/workflows/build.yml` | Tests, exe build, release |
+| `scripts/build.ps1` | Builds the one-folder exe and smoke-tests it (local hook and release) |
+| `scripts/hooks/post-commit` | Local build after every commit |
+| `.github/workflows/build.yml` | Tests on every push, exe and release on tags |
 
 <a id="build-and-release"></a>
 
@@ -157,10 +160,20 @@ git tag v0.1.0 <commit>
 git push origin v0.1.0
 ```
 
-Local build:
+Locally the exe is rebuilt after every commit, so each commit can be tried at once: the post-commit hook in
+`scripts/hooks` runs `scripts/build.ps1` in the background (the commit does not wait), which builds
+`dist\FLKitsManager\FLKitsManager.exe` and smoke-tests it; the log is `build\last-build.log` (close the app first, a
+running exe cannot be replaced). Enable the hook once per clone, or build by hand:
 
 ```powershell
-.\.venv\Scripts\pyinstaller --noconfirm --clean --windowed --onedir --name FLKitsManager --paths . flkm/__main__.py
+git config core.hooksPath scripts/hooks
+.\scripts\build.ps1
 ```
+
+<a id="license"></a>
+
+## 📄 License
+
+[MIT No Attribution](LICENSE): use, copy, change and share it freely, no credit required.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>

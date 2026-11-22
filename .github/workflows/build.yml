@@ -18,8 +18,8 @@ jobs:
     env:
       QT_QPA_PLATFORM: offscreen
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
           cache: pip
@@ -37,8 +37,8 @@ jobs:
     env:
       QT_QPA_PLATFORM: offscreen
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
           cache: pip
@@ -53,22 +53,14 @@ jobs:
             throw "tag ${{ github.ref_name }} does not match version $v"
           }
           "value=$v" >> $env:GITHUB_OUTPUT
-      - name: Build (one folder)
-        run: pyinstaller --noconfirm --clean --windowed --onedir --name FLKitsManager --paths . flkm/__main__.py
-      - name: Smoke test of the exe
+      - name: Build and smoke test (one folder, same script as the local build)
         shell: pwsh
-        run: |
-          $p = Start-Process dist/FLKitsManager/FLKitsManager.exe -ArgumentList "--smoke-test" -Wait -PassThru
-          if ($p.ExitCode -ne 0) { throw "smoke test failed: exit code $($p.ExitCode)" }
+        run: ./scripts/build.ps1 -Python python
       - name: Zip
         shell: pwsh
         run: |
-          Copy-Item README.md, CHANGELOG.md dist/FLKitsManager/
+          Copy-Item README.md, CHANGELOG.md, LICENSE dist/FLKitsManager/
           Compress-Archive -Path dist/FLKitsManager -DestinationPath FLKitsManager_v${{ steps.version.outputs.value }}.zip
-      - uses: actions/upload-artifact@v4
-        with:
-          name: FLKitsManager_v${{ steps.version.outputs.value }}
-          path: FLKitsManager_v${{ steps.version.outputs.value }}.zip
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
