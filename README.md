@@ -134,17 +134,17 @@ limits, and warns you when the run could use up what is left. Without Claude, ev
 
 ## 🗺️ Roadmap
 
-| Milestone | Content |
-|---|---|
-| M0 | Project skeleton, tests, exe built by GitHub Actions |
-| M1 | Read the game: sider.ini, kitserver map, CPK, FTEX textures, team catalog by federation, country and league, which kit each team uses |
-| M2 | Team list and team page, kits folded and unrolled |
-| M3 | Staging, deploy, undo |
-| M4 | Import whole kits from kit packs, folder or zip (match by id and name); PNG images |
-| M5 | Logos: view and replace crests and competition logos |
-| M6 | Kits from photos loaded by the user (end-to-end script) |
-| M7 | Claude: detection, usage estimate and warning, logos from the web |
-| M8 | Kits from photos found and reviewed by Claude |
+| Milestone | Content | Done |
+|---|---|---|
+| M0 | Project skeleton, tests, exe built by GitHub Actions | ✅ [`3f7e7a6`](https://github.com/bellomo/FL-Kits-Manager/commit/3f7e7a6) |
+| M1 | Read the game: sider.ini, kitserver map, CPK, FTEX textures, team catalog by federation, country and league, which kit each team uses | ✅ [`de8cefa`](https://github.com/bellomo/FL-Kits-Manager/commit/de8cefa) |
+| M2 | Team list and team page, kits folded and unrolled | ✅ [`39314f2`](https://github.com/bellomo/FL-Kits-Manager/commit/39314f2) |
+| M3 | Staging, deploy, undo | ✅ [`6b99c15`](https://github.com/bellomo/FL-Kits-Manager/commit/6b99c15) |
+| M4 | Import whole kits from kit packs, folder or zip (match by id and name); PNG and DDS images | ✅ [`2103776`](https://github.com/bellomo/FL-Kits-Manager/commit/2103776), [`0e554a2`](https://github.com/bellomo/FL-Kits-Manager/commit/0e554a2) |
+| M5 | Logos: view and replace crests and competition logos | |
+| M6 | Kits from photos loaded by the user (end-to-end script) | |
+| M7 | Claude: detection, usage estimate and warning, logos from the web | |
+| M8 | Kits from photos found and reviewed by Claude | |
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
