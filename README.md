@@ -145,6 +145,7 @@ limits, and warns you when the run could use up what is left. Without Claude, ev
 | M6 | Kits from photos loaded by the user (end-to-end script) | |
 | M7 | Claude: detection, usage estimate and warning, logos from the web | |
 | M8 | Kits from photos found and reviewed by Claude | |
+| M9 | Release 0.1.0: tag `v0.1.0`, exe zip `FLKitsManager_v0.1.0.zip` on the GitHub releases page | |
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
