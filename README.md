@@ -174,6 +174,6 @@ git config core.hooksPath scripts/hooks
 
 ## 📄 License
 
-[MIT No Attribution](LICENSE): use, copy, change and share it freely, no credit required.
+[MIT](LICENSE): use, copy, change and share it freely, keeping the copyright notice.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>

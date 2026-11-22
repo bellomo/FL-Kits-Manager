@@ -3,7 +3,7 @@ name = "fl-kits-manager"
 version = "0.1.0"
 description = "Browse, replace, generate and deploy the kits and logos installed in SP Football Life 2027"
 requires-python = ">=3.12"
-license = "MIT-0"
+license = "MIT"
 dependencies = ["PySide6>=6.8", "Pillow>=11"]
 
 [project.gui-scripts]
