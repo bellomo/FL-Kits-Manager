@@ -1,9 +1,10 @@
 """The team catalog of the installed game: the teams of the active Team.bin with their league, country and federation.
 Read only.
 
-- League: the team's domestic league in CompetitionEntry.bin, with the name Mod Studio gave it in the kitserver map
-  (the most common one among its teams), else a name made from the game's code (ITALY_D1_LEAGUE -> Italy D1). A team
-  in no league keeps the league of its map line, if any.
+- League: the team's domestic league in CompetitionEntry.bin, named as the game shows it: a game league by
+  CompetitionRegulation.bin (ITALY_D1_LEAGUE -> Serie A TIM), a league Mod Studio adds by the name Mod Studio gave it
+  in the kitserver map (the most common one among its teams); else a name made from the code (ITALY_D1_LEAGUE ->
+  Italy D1). A team in no league keeps the league of its map line, if any.
 - Country: from the code of a game league, or from the Mod Studio recipe for the leagues Mod Studio adds; a team in no
   league whose name is a country's (a national team) gets that country.
 - Federation: the confederation of the country in Country.bin.
@@ -43,10 +44,15 @@ def _fold(text: str) -> str:
 
 def pretty_country(name: str) -> str:
     """the game's upper case country name in title case: TURKS AND CAICOS IS. -> Turks and Caicos Is."""
-    words = []
-    for w in name.split():
-        words.append(w.lower() if w in _LOWER else w if w in _UPPER else w.title())
-    return " ".join(words)
+
+    def word(w: str) -> str:
+        if w in _LOWER:
+            return w.lower()
+        if w in _UPPER:
+            return w
+        return "-".join("d'" + p[2:].capitalize() if p.startswith("D'") else p.capitalize() for p in w.split("-"))
+
+    return " ".join(word(w) for w in name.split())
 
 
 def _sorted(groups: dict) -> dict:
@@ -92,7 +98,7 @@ class Catalog:
         return kits.team_kits(team_id, self.kit_map, self.files)
 
 
-def _table(gf: GameFiles, name: str, reader) -> list:
+def _table(gf: GameFiles, name: str, reader):
     found = gf.find(PESDB + name)
     return reader(found.read()) if found else []
 
@@ -119,14 +125,21 @@ def load(game_dir: Path) -> Catalog:
     countries = {_fold(c.name): c for c in _table(gf, "Country.bin", pesdb.countries)}
     spelling = {key: pretty_country(c.name) for key, c in countries.items()}
     recipe_countries = recipe.league_countries(recipe.path(gf.sider.world))
-    spelling.update({_fold(c): c for c in recipe_countries.values()})
+    for c in recipe_countries.values():  # the game's spelling wins (the recipe writes Usa, Guinea-bissau)
+        spelling.setdefault(_fold(c), c)
+
+    shown = _table(gf, "CompetitionRegulation.bin", pesdb.regulation_names) or {}
+
+    def game_name(code: str) -> str | None:
+        """the name the game shows: the record of the code, else its first stage (ITALY_D1_LEAGUE_SPLIT_TOTAL...)"""
+        return shown.get(code) or next((n for c, n in shown.items() if c.startswith(code + "_")), None)
 
     def comp_league(comp: pesdb.Competition) -> tuple[str, str | None]:
         """league name and country key of a domestic league"""
         if comp.country_code:
             key = _fold(_CODE_ALIASES.get(comp.country_code, comp.country_code))
             spelling.setdefault(key, pretty_country(comp.country_code))
-            return f"{spelling[key]} D{comp.division}", key
+            return game_name(comp.name) or f"{spelling[key]} D{comp.division}", key
         name = votes[comp.id].most_common(1)[0][0] if comp.id in votes else comp.name
         country = recipe_countries.get(name)
         return name, _fold(country) if country else None

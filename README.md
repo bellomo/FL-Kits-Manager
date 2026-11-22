@@ -154,7 +154,7 @@ Development rules (test-driven, 100% line and branch coverage, no network in tes
 | `flkm/game/kitmap.py` | Kitserver map (`content/kits/map.txt`): team id → kit folder, league |
 | `flkm/game/cpk.py` | CRI CPK archives, read only |
 | `flkm/game/files.py` | Where the game takes a file from: livecpk roots, then `download/`, then `Data/` CPKs |
-| `flkm/game/pesdb.py` | Database tables: WESYS unpacking, teams, competitions, competition entries, countries |
+| `flkm/game/pesdb.py` | Database tables: WESYS unpacking, teams, competitions and their names, entries, countries |
 | `flkm/game/recipe.py` | Mod Studio recipe of the active world: the country of each league Mod Studio adds |
 | `flkm/game/ftex.py` | FTEX textures (DXT1, DXT5, BC7) decoded to images |
 | `flkm/game/kits.py` | Which kits a team wears (kitserver folder or game files) |

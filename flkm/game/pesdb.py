@@ -9,6 +9,9 @@ holds fixed-size records:
   0-7, high byte in bits 24-31) and the team's position (bits 8-15).
 - Country.bin, 1420 bytes: id in the low 10 bits of the u32 at 0, continent at 4, confederation at 5, upper case
   English name at 288.
+- CompetitionRegulation.bin, 2352 bytes, one per competition stage: names as the game shows them in 115-byte language
+  slots (9 from 20, English at 480; 11 more from 1087) and the competition's code name at 1055 (32 bytes:
+  ITALY_D1_LEAGUE, or DENMARK_D1_LEAGUE_SPLIT_TOTAL for a league played in phases).
 """
 
 import re
@@ -20,6 +23,7 @@ TEAM_RECORD = 1532
 COMPETITION_RECORD = 36
 ENTRY_RECORD = 12
 COUNTRY_RECORD = 1420
+REGULATION_RECORD = 2352
 FEDERATIONS = {2: "UEFA", 3: "AFC", 4: "CONMEBOL", 5: "CAF", 6: "CONCACAF", 7: "OFC"}
 _MAGIC = b"\x00\x01\x01WESYS"
 _LEAGUE = re.compile(r"^(?:FL_\d+|([A-Z]+)_D(\d+))_LEAGUE$")
@@ -113,6 +117,18 @@ def competition_entries(data: bytes) -> list[Entry]:
     for r in _records(data, ENTRY_RECORD, "CompetitionEntry.bin"):
         team, _, packed = struct.unpack("<III", r)
         out.append(Entry(team, (packed & 0xFF) | (packed >> 24) << 8, (packed >> 8) & 0xFF))
+    return out
+
+
+def regulation_names(data: bytes) -> dict[str, str]:
+    """code name -> name as the game shows it (English, else the first language that has one); the first record of a
+    code wins (a competition has a record per stage)"""
+    out: dict[str, str] = {}
+    for r in _records(data, REGULATION_RECORD, "CompetitionRegulation.bin"):
+        slots = [_text(r, 20 + 115 * k, 115) for k in range(9)] + [_text(r, 1087 + 115 * k, 115) for k in range(11)]
+        name = slots[4] or next((s for s in slots if s), None)
+        if name:
+            out.setdefault(_text(r, 1055, 32), name)
     return out
 
 

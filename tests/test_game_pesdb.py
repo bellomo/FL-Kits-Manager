@@ -5,7 +5,7 @@ import struct
 
 import pytest
 
-from conftest import competition_record, country_record, entry_record, team_record, wesys
+from conftest import competition_record, country_record, entry_record, regulation_record, team_record, wesys
 from flkm.game import pesdb
 
 
@@ -112,12 +112,37 @@ def test_every_confederation_code():
     ]
 
 
+def test_league_names_as_the_game_shows_them():
+    data = wesys(
+        regulation_record("ITALY_D1_LEAGUE", "Serie A TIM", "Serie A TIM")
+        + regulation_record("DENMARK_D1_LEAGUE_SPLIT_TOTAL", "3F Superliga")
+        + regulation_record("DENMARK_D1_LEAGUE_0", "Regular Season")
+        + regulation_record("ITALY_D1_LEAGUE", "Second stage")
+    )
+    names = pesdb.regulation_names(data)
+    assert names == {
+        "ITALY_D1_LEAGUE": "Serie A TIM",  # the first record of a code wins
+        "DENMARK_D1_LEAGUE_SPLIT_TOTAL": "3F Superliga",
+        "DENMARK_D1_LEAGUE_0": "Regular Season",
+    }
+
+
+def test_league_name_without_english_takes_another_language():
+    names = pesdb.regulation_names(regulation_record("FL_1_LEAGUE", "", "Liga Uno"))
+    assert names == {"FL_1_LEAGUE": "Liga Uno"}
+
+
+def test_record_without_any_name_is_left_out():
+    assert pesdb.regulation_names(regulation_record("FL_1_LEAGUE", "")) == {}
+
+
 @pytest.mark.parametrize(
     ("reader", "record", "size"),
     [
         (pesdb.competitions, competition_record(1, "A"), 36),
         (pesdb.competition_entries, entry_record(1, 1), 12),
         (pesdb.countries, country_record(1, "A", 1, 2), 1420),
+        (pesdb.regulation_names, regulation_record("A", "A"), 2352),
     ],
 )
 def test_tables_of_a_wrong_size_are_refused(reader, record, size):

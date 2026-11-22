@@ -1,19 +1,20 @@
 """The team catalog of the installed game: every team of the active Team.bin with its id, name, abbreviation, league,
 country and federation, grouped by federation, country and league.
 
-The league is the team's domestic league in CompetitionEntry.bin, named as Mod Studio named it in map.txt (or after
-the game's code name, ITALY_D1_LEAGUE -> Italy D1); the country comes from the code name or, for the leagues Mod Studio
-adds, from its recipe; national teams are matched to a country by name; the federation is the country's in
+The league is the team's domestic league in CompetitionEntry.bin, named as the game shows it: a game league by
+CompetitionRegulation.bin (ITALY_D1_LEAGUE -> Serie A TIM), a league Mod Studio adds as Mod Studio named it in map.txt;
+without a name, after the code (ITALY_D1_LEAGUE -> Italy D1). The country comes from the code name or, for the leagues
+Mod Studio adds, from its recipe; national teams are matched to a country by name; the federation is the country's in
 Country.bin."""
 
 import json
 
-from conftest import competition_record, country_record, entry_record, team_record, wesys
+from conftest import competition_record, country_record, entry_record, regulation_record, team_record, wesys
 from flkm import catalog
 from flkm.game import files
 
 
-def make_game(game, teams, map_lines="", comps=(), entries=(), countries=(), recipe=None):
+def make_game(game, teams, map_lines="", comps=(), entries=(), countries=(), recipe=None, regulations=()):
     sider = game / "SiderAddons"
     (sider / "sider.ini").write_text('cpk.root = ".\\livecpk\\_World"\n', encoding="utf-8")
     pesdb = sider / "livecpk" / "_World" / "common" / "etc" / "pesdb"
@@ -24,6 +25,8 @@ def make_game(game, teams, map_lines="", comps=(), entries=(), countries=(), rec
         (pesdb / "CompetitionEntry.bin").write_bytes(wesys(b"".join(entry_record(*e) for e in entries)))
     if countries:
         (pesdb / "Country.bin").write_bytes(wesys(b"".join(country_record(*c) for c in countries)))
+    if regulations:
+        (pesdb / "CompetitionRegulation.bin").write_bytes(wesys(b"".join(regulation_record(*r) for r in regulations)))
     kits_dir = sider / "content" / "kits"
     kits_dir.mkdir(parents=True)
     (kits_dir / "map.txt").write_text(map_lines, encoding="utf-8")
@@ -113,6 +116,25 @@ def test_game_league_codes_that_differ_from_the_country_name(game):
     assert row(cat.get(102)) == (102, "Saudi Arabia D1", "Saudi Arabia", "AFC")
 
 
+REGULATIONS = [
+    ("ITALY_D1_CUP_KNOCKOUT", "Coppa Italia"),
+    ("ITALY_D1_LEAGUE", "Serie A TIM"),
+    ("US_D1_LEAGUE_SPLIT_TOTAL", "Major League Soccer"),
+    ("US_D1_LEAGUE_EAST", "MLS First Round"),
+    ("FL_363_LEAGUE_X", "Not this one"),  # a Mod Studio league keeps its map.txt name
+]
+
+
+def test_game_leagues_are_named_as_the_game_shows_them(game):
+    teams, entries = [(101, "Austin FC", "AUS"), (102, "Al Hilal", "HIL")], [(101, 40), (102, 139)]
+    g = make_game(game, TEAMS + teams, MAP, COMPS, [(186, 10), (73947, 251)] + entries, COUNTRIES, RECIPE, REGULATIONS)
+    cat = catalog.load(g)
+    assert row(cat.get(186)) == (186, "Serie A TIM", "Italy", "UEFA")
+    assert row(cat.get(101)) == (101, "Major League Soccer", "USA", "CONCACAF")  # league played in phases
+    assert row(cat.get(102)) == (102, "Saudi Arabia D1", "Saudi Arabia", "AFC")  # no regulation: named after the code
+    assert row(cat.get(73947)) == (73947, "1. division", "Denmark", "UEFA")
+
+
 def test_national_teams_by_country_name(game):
     cat = catalog.load(full_game(game, [(12, "Italy", "ITA"), (99, "Atlantis", "ATL")], [(12, 33), (99, 33)]))
     assert row(cat.get(12)) == (12, None, "Italy", "UEFA")
@@ -138,23 +160,28 @@ def test_without_the_recipe_mod_studio_leagues_have_no_country(game):
 def test_country_names_read_well(game):
     teams = [(1, "Turks and Caicos Islands", "TCI"), (2, "Côte d'Ivoire", "CIV")]
     cat = catalog.load(full_game(game, teams, recipe=RECIPE + [{"name": "Ligue 1 CI", "country": "Côte d'Ivoire"}]))
-    assert cat.get(2).country == "Côte d'Ivoire" and cat.get(2).federation == "CAF"  # accents do not matter
+    assert cat.get(2).country == "Cote d'Ivoire" and cat.get(2).federation == "CAF"  # accents do not matter
     assert cat.get(1).country is None  # the game abbreviates the name: no match
     assert catalog.pretty_country("TURKS AND CAICOS IS.") == "Turks and Caicos Is."
     assert catalog.pretty_country("GUINEA-BISSAU") == "Guinea-Bissau"
+    assert catalog.pretty_country("TIMOR-LESTE") == "Timor-Leste"
     assert catalog.pretty_country("KOREA DPR") == "Korea DPR"
+    assert catalog.pretty_country("COTE D'IVOIRE") == "Cote d'Ivoire"
 
 
-def test_recipe_spelling_of_a_country_wins(game):
+def test_game_spelling_of_a_country_wins_over_the_recipe(game):
+    recipe = RECIPE + [{"name": "FL_400_LEAGUE", "country": "Cote D'ivoire"}, {"name": "X", "country": "Usa"}]
     cat = catalog.load(
-        full_game(
-            game,
-            [(5, "Abidjan FC", "ABI")],
-            [(5, 300)],
-            recipe=RECIPE + [{"name": "FL_400_LEAGUE", "country": "Cote d'Ivoire"}],
-        )
+        full_game(game, [(5, "Abidjan FC", "ABI"), (6, "Austin FC", "AUS")], [(5, 300), (6, 40)], recipe)
     )
     assert row(cat.get(5)) == (5, "FL_400_LEAGUE", "Cote d'Ivoire", "CAF")
+    assert row(cat.get(6)) == (6, "USA D1", "USA", "CONCACAF")
+
+
+def test_recipe_spelling_of_a_country_the_game_does_not_have(game):
+    recipe = RECIPE + [{"name": "FL_400_LEAGUE", "country": "Atlantis"}]
+    cat = catalog.load(full_game(game, [(5, "Abidjan FC", "ABI")], [(5, 300)], recipe))
+    assert row(cat.get(5)) == (5, "FL_400_LEAGUE", "Atlantis", None)
 
 
 def test_teams_grouped_by_league_sorted_by_name(game):
