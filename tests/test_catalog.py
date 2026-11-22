@@ -177,6 +177,11 @@ def test_teams_grouped_by_federation_country_and_league(game):
     assert groups[None] == {None: {None: [cat.get(99)]}}
 
 
+def test_some_teams_grouped_by_federation(game):
+    cat = catalog.load(full_game(game))
+    assert cat.by_federation(cat.search("aalborg")) == {"UEFA": {"Denmark": {"1. division": [cat.get(73947)]}}}
+
+
 def test_search_by_name_or_id(game):
     cat = catalog.load(make_game(game, TEAMS, MAP))
     assert [t.id for t in cat.search("bolog")] == [186]

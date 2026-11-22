@@ -74,10 +74,13 @@ class Catalog:
             groups.setdefault(t.league, []).append(t)
         return _sorted(groups)
 
-    def by_federation(self) -> dict[str | None, dict[str | None, dict[str | None, list[Team]]]]:
-        """federation -> country -> league -> teams; names sorted with None last, teams sorted by name"""
+    def by_federation(
+        self, teams: list[Team] | None = None
+    ) -> dict[str | None, dict[str | None, dict[str | None, list[Team]]]]:
+        """federation -> country -> league -> teams (all, or the given ones, e.g. found by search); names sorted with
+        None last, teams sorted by name"""
         groups: dict = {}
-        for t in self._by_name():
+        for t in sorted(self.teams if teams is None else teams, key=lambda t: _fold(t.name)):
             groups.setdefault(t.federation, {}).setdefault(t.country, {}).setdefault(t.league, []).append(t)
         return _sorted({f: _sorted({c: _sorted(leagues) for c, leagues in cs.items()}) for f, cs in groups.items()})
 

@@ -13,3 +13,5 @@ Versions follow semver (`MAJOR.MINOR.PATCH`); the release zip is `FLKitsManager_
 - Team catalog by federation, country and league: leagues from the competition tables (named as in the kitserver
   map, or after the game's code), countries from the league code or the Mod Studio recipe, national teams by name,
   federations from Country.bin.
+- Window: choose the game folder (remembered, or `--game`), team list by federation, country and league with search,
+  team page with each kit folded (front and back as in the game) or unrolled, and where it comes from.

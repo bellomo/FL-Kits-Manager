@@ -47,7 +47,8 @@ A Windows app to manage the kits and logos installed in **SP Football Life 2027*
 
 The app ships no kits and no logos: it reads what is installed in your game and edits it.
 
-> Status: early development (0.1.0 is the project skeleton). See the [roadmap](#roadmap).
+> Status: early development: browsing teams and kits works; replacing and deploying come next. See the
+> [roadmap](#roadmap).
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -73,6 +74,8 @@ No Python is needed: the exe contains everything.
 2. Unzip it anywhere and start `FLKitsManager\FLKitsManager.exe`.
 3. The exe is not signed: on the first start Windows SmartScreen may say "Windows protected your PC"; choose
    "More info" → "Run anyway".
+4. Choose the game folder (the one with `SiderAddons`); the app remembers it. `FLKitsManager.exe --game <folder>`
+   opens a folder directly.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -139,8 +142,12 @@ Development rules (test-driven, 100% line and branch coverage, no network in tes
 
 | Path | Content |
 |---|---|
-| `flkm/cli.py` | Command line of the exe (`--smoke-test`) |
-| `flkm/main_window.py` | Main window |
+| `flkm/cli.py` | Command line of the exe (`--game <folder>`, `--smoke-test`) |
+| `flkm/main_window.py` | Main window: game folder, team list, team page |
+| `flkm/team_tree.py` | Team list: federation > country > league > team, search by name or id |
+| `flkm/team_page.py` | Team page: details and kits, folded or unrolled |
+| `flkm/render.py` | Kit pictures from a texture: unrolled, and folded (front and back as in the game) |
+| `flkm/settings.py` | Settings (`%APPDATA%\FLKitsManager\settings.json`): game folder, kit view |
 | `flkm/__main__.py` | `python -m flkm` and the PyInstaller entry point |
 | `flkm/catalog.py` | Team catalog of the installed game: teams by federation, country and league, search, kits of a team |
 | `flkm/game/sider_ini.py` | sider.ini: livecpk roots in priority order, Lua modules, Mod Studio world |

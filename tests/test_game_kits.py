@@ -13,6 +13,22 @@ def ftex(colour=RED):
     return build_ftex(4, 4, 4, [dxt5_block(colour)])
 
 
+def test_picture_uses_the_smallest_mip_that_is_large_enough(tmp_path):
+    p = tmp_path / "u1p1.ftex"
+    p.write_bytes(build_ftex(4, 8, 8, [dxt5_block(RED) * 4, dxt5_block(BLUE)]))  # mips 8x8 and 4x4
+    kit = kits.Kit(1, "p1", "test", file=p)
+    assert kit.picture(4).size == (4, 4)
+    assert kit.picture(5).size == (8, 8)
+    assert kit.picture(100).size == (8, 8)  # no mip is large enough: the full size
+    assert kit.picture(4).getpixel((0, 0)) == (0, 0, 255, 255)
+
+
+def test_picture_of_a_texture_with_one_mip(tmp_path):
+    p = tmp_path / "u1p1.ftex"
+    p.write_bytes(ftex())
+    assert kits.Kit(1, "p1", "test", file=p).picture(2).size == (4, 4)
+
+
 def make_game(game, make_cpk, cpk_files=None, map_lines=""):
     sider = game / "SiderAddons"
     (sider / "sider.ini").write_text('cpk.root = ".\\livecpk\\_World"\n', encoding="utf-8")

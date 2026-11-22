@@ -37,6 +37,13 @@ class Kit:
     def preview(self, mip: int = 0) -> Image.Image:
         return ftex.to_image(self.texture(), mip=mip, opaque=True)
 
+    def picture(self, size: int) -> Image.Image:
+        """the texture from its smallest mip at least `size` pixels wide (else the largest mip), opaque"""
+        tex = self.texture()
+        indexes = sorted(m.index for m in tex.mips)
+        mip = next((i for i in reversed(indexes) if tex.width >> i >= size), indexes[0])
+        return ftex.to_image(tex, mip=mip, opaque=True)
+
 
 def _lines(path: Path) -> list[str]:
     return [s.strip() for s in path.read_text(encoding="utf-8-sig").splitlines() if s.strip()] if path.is_file() else []

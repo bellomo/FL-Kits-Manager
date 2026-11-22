@@ -6,6 +6,7 @@ import sys
 from PySide6.QtCore import QTimer
 
 from flkm import cli
+from flkm.main_window import MainWindow
 
 
 def test_no_arguments_opens_the_window_without_quitting():
@@ -14,6 +15,18 @@ def test_no_arguments_opens_the_window_without_quitting():
 
 def test_smoke_test_flag():
     assert cli.parse_args(["--smoke-test"]).smoke_test is True
+
+
+def test_game_folder_option():
+    assert cli.parse_args([]).game is None
+    assert cli.parse_args(["--game", "D:\\FL27"]).game == "D:\\FL27"
+
+
+def test_game_folder_is_opened_in_the_window(qapp, game, monkeypatch):
+    opened = []
+    monkeypatch.setattr(cli, "MainWindow", lambda game_dir: opened.append(game_dir) or MainWindow())
+    assert cli.main(["--smoke-test", "--game", str(game)], app=qapp) == 0
+    assert opened == [game]
 
 
 def test_smoke_test_opens_the_window_and_exits_with_0(qapp):
