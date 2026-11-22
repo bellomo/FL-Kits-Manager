@@ -170,7 +170,8 @@ def build_ftex(fmt: int, width: int, height: int, mips: list[bytes], chunk: int 
     stored = []
     for index, mip in enumerate(mips):
         pieces = [mip[i : i + chunk] for i in range(0, len(mip), chunk)] or [b""]
-        blobs = [p if raw else zlib.compress(p) for p in pieces]
+        # like the game's files: a chunk that zlib does not make smaller is stored as it is
+        blobs = [p if raw or len(zlib.compress(p)) >= len(p) else zlib.compress(p) for p in pieces]
         chunk_table, pos = b"", 8 * len(blobs)
         for piece, blob in zip(pieces, blobs):
             chunk_table += struct.pack("<HHI", len(blob) & 0xFFFF, len(piece) & 0xFFFF, pos | (0x80000000 * raw))
