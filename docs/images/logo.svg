@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="FL Kits Manager logo: a striped football shirt on a green pitch disc">
+  <circle cx="48" cy="48" r="46" fill="#1f6f43"/>
+  <circle cx="48" cy="48" r="46" fill="none" stroke="#e8f5ec" stroke-width="2" opacity="0.5"/>
+  <path d="M34 20 L22 27 L15 42 L25 47 L29 40 L29 76 L67 76 L67 40 L71 47 L81 42 L74 27 L62 20 Q48 31 34 20 Z" fill="#f4f4f4" stroke="#0f2a1c" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M41 26 L41 76 M55 26 L55 76" stroke="#2a62c9" stroke-width="7"/>
+  <path d="M34 20 Q48 31 62 20" fill="none" stroke="#0f2a1c" stroke-width="2"/>
+</svg>

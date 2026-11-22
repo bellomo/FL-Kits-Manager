@@ -1,0 +1,46 @@
+[project]
+name = "fl-kits-manager"
+version = "0.1.0"
+description = "Browse, replace, generate and deploy the kits and logos installed in SP Football Life 2027"
+requires-python = ">=3.12"
+dependencies = ["PySide6>=6.8", "Pillow>=11"]
+
+[project.gui-scripts]
+flkm = "flkm.cli:main"
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["flkm"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+# keep the temporary folders (tmp_path) of failed tests only, for debugging; passed ones are removed at the end
+tmp_path_retention_policy = "failed"
+qt_api = "pyside6"
+
+# Lint (tests/test_rule_lint.py runs ruff check): pyflakes (F: unused imports and variables, undefined names, ...), the
+# pycodestyle errors E4, E7, E9, and lines of at most 120 characters (E501). Listed explicitly: a newer ruff with more
+# default rules does not change what is checked.
+[tool.ruff]
+line-length = 120
+extend-exclude = [".venv", "build", "dist"]
+
+# Format (tests/test_rule_lint.py): ruff's layout, with double quotes
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "E501"]
+
+# Coverage (the command of CLAUDE.md): every line and branch of the code is run by the tests, or the run fails. Only the
+# `if __name__ == "__main__":` line is left out. tests/test_rule_coverage.py keeps these settings.
+[tool.coverage.run]
+branch = true
+
+[tool.coverage.report]
+fail_under = 100
+exclude_also = ["if __name__ == .__main__.:"]
