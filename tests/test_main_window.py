@@ -5,8 +5,9 @@ import pytest
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 import flkm
-from conftest import team_record, wesys
-from flkm import main_window, settings
+from conftest import build_ftex, dxt5_block, team_record, wesys
+from flkm import deploy, main_window, settings
+from flkm.game import process
 from flkm.main_window import MainWindow
 
 
@@ -203,6 +204,215 @@ def test_text_size_shortcuts(qtbot, app_font):
     assert w.larger_text_action.shortcut().toString() == "Ctrl++"
     assert w.smaller_text_action.shortcut().toString() == "Ctrl+-"
     assert w.default_text_action.shortcut().toString() == "Ctrl+0"
+
+
+# --- Replace, Deploy, Undo -------------------------------------------------------------------------------------------
+
+TEX = "Asset/model/character/uniform/texture/#windx11/"
+OLD, NEW = build_ftex(4, 4, 4, [dxt5_block(0xF800)]), build_ftex(4, 4, 4, [dxt5_block(0x001F)])
+
+
+def kit_game(game):
+    """the fake game with Bologna's home kit in the livecpk root"""
+    fake_game(game)
+    textures = game / "SiderAddons" / "livecpk" / "_World" / TEX
+    textures.mkdir(parents=True)
+    (textures / "u0186p1.ftex").write_bytes(OLD)
+    return game
+
+
+def new_texture(tmp_path, data=NEW):
+    p = tmp_path / "home.ftex"
+    p.write_bytes(data)
+    return p
+
+
+class Dialogs:
+    """answers the window's questions and records its messages"""
+
+    def __init__(self, monkeypatch):
+        self.answers, self.asked, self.warnings, self.infos = [], [], [], []
+        self.file = ""
+        monkeypatch.setattr(QMessageBox, "question", self._question)
+        monkeypatch.setattr(QMessageBox, "warning", lambda parent, title, text: self.warnings.append(text))
+        monkeypatch.setattr(QMessageBox, "information", lambda parent, title, text: self.infos.append(text))
+        monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *a, **k: (self.file, ""))
+
+    def _question(self, parent, title, text, *a, **k):
+        self.asked.append(text)
+        return QMessageBox.Yes if (self.answers.pop(0) if self.answers else True) else QMessageBox.No
+
+
+@pytest.fixture
+def dialogs(monkeypatch):
+    return Dialogs(monkeypatch)
+
+
+@pytest.fixture
+def closed_game(monkeypatch):
+    state = {"running": False}
+    monkeypatch.setattr(process, "game_running", lambda: state["running"])
+    return state
+
+
+def bologna(qtbot, game):
+    w = make_window(qtbot, game_dir=kit_game(game))
+    w.tree.select_team(186)
+    return w
+
+
+def app_texture(game):
+    return game / "SiderAddons" / "livecpk" / "FLKitsManager" / TEX / "u0186p1.ftex"
+
+
+def test_changes_menu_without_a_game(qtbot):
+    w = make_window(qtbot)
+    actions = (w.deploy_action, w.discard_action, w.undo_action, w.relink_action)
+    assert [a.isEnabled() for a in actions] == [False] * 4
+    assert w.deploy_action.shortcut().toString() == "Ctrl+D"
+
+
+def test_replace_a_kit_waits_for_deploy(qtbot, game, tmp_path, dialogs):
+    w = bologna(qtbot, game)
+    assert not w.deploy_action.isEnabled() and not w.pending_label.isVisibleTo(w)
+    dialogs.file = str(new_texture(tmp_path))
+    w.page.cards[0].replace_button.click()
+    card = w.page.cards[0]
+    assert card.pending and card.source.text() == "New kit, not deployed yet: home.ftex"
+    assert card.source.toolTip() == str(tmp_path / "home.ftex")
+    assert w.deploy_action.isEnabled() and w.discard_action.isEnabled()
+    assert w.pending_label.isVisibleTo(w) and w.pending_label.text() == "1 kit waiting for Deploy"
+    assert not app_texture(game).exists()  # nothing written to the game yet
+    assert len(make_window(qtbot).staging.changes) == 1  # kept when the app is closed
+
+
+def test_replace_cancelled(qtbot, game, dialogs):
+    w = bologna(qtbot, game)
+    w.page.cards[0].replace_button.click()
+    assert not w.page.cards[0].pending and w.staging.changes == []
+
+
+def test_replace_with_a_file_that_is_not_a_texture(qtbot, game, tmp_path, dialogs):
+    w = bologna(qtbot, game)
+    dialogs.file = str(new_texture(tmp_path, b"nope"))
+    w.page.cards[0].replace_button.click()
+    assert w.staging.changes == [] and dialogs.warnings[0].startswith(f"{tmp_path / 'home.ftex'} is not a readable")
+
+
+def test_keep_the_current_kit(qtbot, game, tmp_path, dialogs):
+    w = bologna(qtbot, game)
+    dialogs.file = str(new_texture(tmp_path))
+    w.page.cards[0].replace_button.click()
+    w.page.cards[0].discard_button.click()
+    assert not w.page.cards[0].pending and w.staging.changes == [] and not w.deploy_action.isEnabled()
+
+
+def test_discard_all_changes_asks_first(qtbot, game, tmp_path, dialogs):
+    w = bologna(qtbot, game)
+    dialogs.file = str(new_texture(tmp_path))
+    w.page.cards[0].replace_button.click()
+    dialogs.answers = [False]
+    w.discard_action.trigger()
+    assert len(w.staging.changes) == 1
+    w.discard_action.trigger()
+    assert w.staging.changes == [] and not w.page.cards[0].pending
+    assert dialogs.asked[0] == "Discard 1 kit waiting for Deploy?"
+
+
+def test_deploy_installs_the_kits_and_reads_the_game_again(qtbot, game, tmp_path, dialogs, closed_game):
+    w = bologna(qtbot, game)
+    dialogs.file = str(new_texture(tmp_path))
+    w.page.cards[0].replace_button.click()
+    w.deploy_action.trigger()
+    assert dialogs.asked[0].startswith("Install 1 kit in the game?\n\nBologna FC: Home\n")
+    assert app_texture(game).read_bytes() == NEW
+    assert w.staging.changes == [] and not w.deploy_action.isEnabled() and w.undo_action.isEnabled()
+    card = w.page.cards[0]
+    assert not card.pending and "FLKitsManager" in card.source.text()  # the page shows the installed kit
+    assert w.statusBar().currentMessage() == "Deployed 1 kit. Restart the game to see it."
+
+
+def test_deploy_of_several_kits(qtbot, game, tmp_path, dialogs, closed_game):
+    w = bologna(qtbot, game)
+    w.staging.add(186, "Bologna FC", "p1", new_texture(tmp_path))
+    w.staging.add(5, "New Club", "p1", new_texture(tmp_path))
+    w._update_changes()
+    w.deploy_action.trigger()
+    assert w.statusBar().currentMessage() == "Deployed 2 kits. Restart the game to see them."
+
+
+def test_deploy_cancelled(qtbot, game, tmp_path, dialogs, closed_game):
+    w = bologna(qtbot, game)
+    dialogs.file = str(new_texture(tmp_path))
+    w.page.cards[0].replace_button.click()
+    dialogs.answers = [False]
+    w.deploy_action.trigger()
+    assert not app_texture(game).exists() and len(w.staging.changes) == 1
+
+
+def test_deploy_while_the_game_runs(qtbot, game, tmp_path, dialogs, closed_game):
+    w = bologna(qtbot, game)
+    dialogs.file = str(new_texture(tmp_path))
+    w.page.cards[0].replace_button.click()
+    closed_game["running"] = True
+    w.deploy_action.trigger()
+    assert dialogs.warnings == ["SP Football Life 2027 is running: close the game first."]
+    assert not app_texture(game).exists() and len(w.staging.changes) == 1
+
+
+def test_deploy_when_the_game_state_is_unknown_asks_the_user(qtbot, game, tmp_path, dialogs, closed_game):
+    w = bologna(qtbot, game)
+    dialogs.file = str(new_texture(tmp_path))
+    w.page.cards[0].replace_button.click()
+    closed_game["running"] = None
+    dialogs.answers = [True, False]  # install: yes; is the game closed: no
+    w.deploy_action.trigger()
+    assert dialogs.asked[1].startswith("Cannot tell whether SP Football Life 2027 is running.")
+    assert not app_texture(game).exists()
+    w.deploy_action.trigger()  # yes and yes
+    assert app_texture(game).read_bytes() == NEW
+
+
+def test_undo_last_deploy(qtbot, game, tmp_path, dialogs, closed_game):
+    w = bologna(qtbot, game)
+    dialogs.file = str(new_texture(tmp_path))
+    w.page.cards[0].replace_button.click()
+    w.deploy_action.trigger()
+    dialogs.answers = [False]
+    w.undo_action.trigger()
+    assert app_texture(game).exists()
+    w.undo_action.trigger()
+    assert dialogs.asked[-1] == "Undo the last deploy (1 kit)? The files it changed are put back as they were."
+    assert not app_texture(game).exists() and not w.undo_action.isEnabled()
+    assert "_World" in w.page.cards[0].source.text()
+    assert w.statusBar().currentMessage() == "Last deploy undone. Restart the game to see the change."
+
+
+def test_links_lost_after_a_mod_studio_build_are_shown_and_reapplied(qtbot, game, tmp_path, dialogs, closed_game):
+    w = bologna(qtbot, game)
+    assert not w.links_banner.isVisibleTo(w)
+    dialogs.file = str(new_texture(tmp_path))
+    w.page.cards[0].replace_button.click()
+    w.deploy_action.trigger()
+    ini = game / "SiderAddons" / "sider.ini"
+    ini.write_text('cpk.root = ".\\livecpk\\_World"\n', encoding="utf-8")  # rewritten by another tool
+    w.reload_action.trigger()
+    assert w.links_banner.isVisibleTo(w) and "sider.ini" in w.links_text.text()
+    w.relink_button.click()
+    assert not w.links_banner.isVisibleTo(w) and "FLKitsManager" in ini.read_text(encoding="utf-8")
+
+
+def test_an_error_while_deploying_is_shown(qtbot, game, tmp_path, dialogs, closed_game, monkeypatch):
+    w = bologna(qtbot, game)
+    dialogs.file = str(new_texture(tmp_path))
+    w.page.cards[0].replace_button.click()
+
+    def broken(*a, **k):
+        raise PermissionError("access denied")
+
+    monkeypatch.setattr(deploy, "deploy", broken)
+    w.deploy_action.trigger()
+    assert dialogs.warnings == ["Deploy failed: access denied"]
 
 
 def test_quit_action_closes_the_window(qtbot):

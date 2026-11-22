@@ -106,6 +106,30 @@ def test_team_name_stays_larger_than_the_text_when_the_text_size_changes(qtbot):
     assert p.title.font().pointSize() == 20 + TITLE_EXTRA and p.title.font().bold()
 
 
+def test_each_card_offers_to_replace_its_kit(qtbot):
+    p = make_page(qtbot)
+    p.show_team(BOLOGNA, [FakeKit("p1"), FakeKit("g1")])
+    card = p.cards[1]
+    assert card.replace_button.text() == "Replace…" and not card.discard_button.isVisibleTo(card)
+    with qtbot.waitSignal(p.replace_requested) as sig:
+        card.replace_button.click()
+    assert sig.args == ["g1"]
+
+
+def test_a_kit_waiting_for_deploy_is_shown_instead_of_the_current_one(qtbot):
+    p = make_page(qtbot)
+    new = FakeKit("p1", "New kit, not deployed yet: C:\\kits\\home.ftex")
+    p.show_team(BOLOGNA, [FakeKit("p1"), FakeKit("p2")], pending={"p1": new})
+    card = p.cards[0]
+    assert card.pending and card.kit is new and new.asked == 1024
+    assert card.name.text() == "Home · new" and card.source.text() == new.source
+    assert card.discard_button.isVisibleTo(card) and card.discard_button.text() == "Keep the current kit"
+    assert not p.cards[1].pending and p.cards[1].name.text() == "Away"
+    with qtbot.waitSignal(p.discard_requested) as sig:
+        card.discard_button.click()
+    assert sig.args == ["p1"]
+
+
 def test_showing_another_team_replaces_the_cards(qtbot):
     p = make_page(qtbot)
     p.show_team(BOLOGNA, [FakeKit("p1"), FakeKit("p2")])

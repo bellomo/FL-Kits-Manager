@@ -51,3 +51,62 @@ def test_folder_path_under_the_kits_folder(game):
 def test_missing_map_is_empty(game):
     m = kitmap.load(game / "nope" / "map.txt")
     assert m.entries == {}
+
+
+def test_a_later_line_without_league_keeps_the_league_of_mod_studio():
+    m = kitmap.parse(SAMPLE + '73947, "FLKitsManager\\73947 Aalborg"\n')
+    assert m.entries[73947].folder == "FLKitsManager\\73947 Aalborg"
+    assert m.entries[73947].league == "1. division"
+
+
+APP_BLOCK = (
+    "# >>> FL Kits Manager: the lines below are written by the app, do not edit them >>>\n"
+    '186, "FLKitsManager\\186 Bologna FC"\n'
+    '73947, "FLKitsManager\\73947 Aalborg"\n'
+    "# <<< FL Kits Manager <<<\n"
+)
+
+
+def test_app_block_goes_at_the_end_so_that_it_wins():
+    text = kitmap.with_app_block(SAMPLE, [(186, "186 Bologna FC"), (73947, "73947 Aalborg")])
+    assert text == SAMPLE + APP_BLOCK
+    m = kitmap.parse(text)
+    assert m.entries[73947].folder == "FLKitsManager\\73947 Aalborg"
+    assert m.entries[71581].folder.startswith("_FL26Megapack")  # the other lines are untouched
+
+
+def test_app_block_is_replaced_not_repeated():
+    text = kitmap.with_app_block(SAMPLE + APP_BLOCK + "# a line added later\n", [(5, "5 Club")])
+    assert text == SAMPLE + "# a line added later\n" + (
+        "# >>> FL Kits Manager: the lines below are written by the app, do not edit them >>>\n"
+        '5, "FLKitsManager\\5 Club"\n'
+        "# <<< FL Kits Manager <<<\n"
+    )
+
+
+def test_no_entries_removes_the_block():
+    assert kitmap.with_app_block(SAMPLE + APP_BLOCK, []) == SAMPLE
+    assert kitmap.with_app_block(SAMPLE, []) == SAMPLE
+
+
+def test_app_block_keeps_windows_line_ends_and_a_missing_last_line_end():
+    crlf = SAMPLE.replace("\n", "\r\n")
+    assert kitmap.with_app_block(crlf, [(5, "5 Club")]).endswith(
+        '5, "FLKitsManager\\5 Club"\r\n# <<< FL Kits Manager <<<\r\n'
+    )
+    assert kitmap.with_app_block('1, "A"', [(5, "5 Club")]).startswith('1, "A"\n# >>> FL Kits Manager')
+
+
+def test_block_without_its_end_line_runs_to_the_end_of_the_file():
+    broken = SAMPLE + APP_BLOCK.replace("# <<< FL Kits Manager <<<\n", "")
+    assert kitmap.app_block(broken) == [(186, "186 Bologna FC"), (73947, "73947 Aalborg")]
+    assert kitmap.with_app_block(broken, []) == SAMPLE
+
+
+def test_map_with_only_the_block_becomes_empty():
+    assert kitmap.with_app_block(APP_BLOCK, []) == ""
+
+
+def test_app_block_entries_are_read_back():
+    assert kitmap.app_block(SAMPLE + APP_BLOCK) == [(186, "186 Bologna FC"), (73947, "73947 Aalborg")]
+    assert kitmap.app_block(SAMPLE) is None  # no block (e.g. lost after a Mod Studio Build)

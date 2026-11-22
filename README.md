@@ -47,8 +47,8 @@ A Windows app to manage the kits and logos installed in **SP Football Life 2027*
 
 The app ships no kits and no logos: it reads what is installed in your game and edits it.
 
-> Status: early development: browsing teams and kits works; replacing and deploying come next. See the
-> [roadmap](#roadmap).
+> Status: early development: browsing teams and kits, replacing a kit with an `.ftex` texture, Deploy and Undo
+> work; replacing from folders, zips and PNG images comes next. See the [roadmap](#roadmap).
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -89,12 +89,23 @@ No Python is needed: the exe contains everything.
 
 ### ✍️ What the app writes
 
-Every change is first kept in a staging area. **Deploy** installs it into the game:
+**Replace…** on a kit chooses a new `.ftex` texture for it. The change is not written to the game yet: the kit shows
+as *new* (in orange) and the status bar counts the kits waiting; **Keep the current kit** or Changes → Discard all
+changes drops them. Changes → **Deploy to the game** (Ctrl+D) installs them:
 
-- only into the app's own folders (its livecpk root and kits folder) and its own marked lines of `sider.ini` and the
-  kitserver `map.txt`; the game's CPK files are never touched;
-- every file it changes is backed up first, and **Undo last deploy** puts the previous state back;
-- the game must be closed.
+- a team with a kitserver folder: the folder is copied once to `content\kits\FLKitsManager\<id> <name>` with the new
+  texture, and a marked block at the end of `map.txt` points the team there (Mod Studio's own folders and lines are
+  not changed);
+- a team whose kits come from the game files: the texture goes to `livecpk\FLKitsManager`, which is put first in
+  `sider.ini`;
+- `map.txt` and `sider.ini` get a `<file>.bak-<date>` copy before their first change of the day; the game's CPK files
+  are never touched;
+- every file a deploy writes is recorded (with a copy of what was there) in `%APPDATA%\FLKitsManager\deploys`, and
+  Changes → **Undo last deploy** puts it back, one deploy at a time;
+- the game must be closed (the app checks; when it cannot tell, it asks).
+
+A Mod Studio Build rewrites `map.txt` and can drop the app's block (another tool can do the same to `sider.ini`): the
+app then shows a bar with **Re-apply**, also in Changes → Re-apply links to the app's kits.
 
 <a id="claude-optional"></a>
 
@@ -145,15 +156,18 @@ Development rules (test-driven, 100% line and branch coverage, no network in tes
 | Path | Content |
 |---|---|
 | `flkm/cli.py` | Command line of the exe (`--game <folder>`, `--smoke-test`) |
-| `flkm/main_window.py` | Main window: game folder, team list, team page |
+| `flkm/main_window.py` | Main window: game folder, team list, team page, Changes menu (Deploy, Undo, Re-apply) |
 | `flkm/team_tree.py` | Team list: federation > country > league > team, search by name or id |
-| `flkm/team_page.py` | Team page: details and kits, folded or unrolled |
+| `flkm/team_page.py` | Team page: details and kits, folded or unrolled, Replace… and kits waiting for Deploy |
+| `flkm/staging.py` | Kits chosen to replace the game's, kept until Deploy (`%APPDATA%\FLKitsManager\staging`) |
+| `flkm/deploy.py` | Deploy, Undo, Re-apply links, status of the app's links, deploy history |
 | `flkm/render.py` | Kit pictures from a texture: unrolled, and folded (front and back as in the game) |
 | `flkm/settings.py` | Settings (`%APPDATA%\FLKitsManager\settings.json`): game folder, kit view, text size |
 | `flkm/__main__.py` | `python -m flkm` and the PyInstaller entry point |
 | `flkm/catalog.py` | Team catalog of the installed game: teams by federation, country and league, search, kits of a team |
-| `flkm/game/sider_ini.py` | sider.ini: livecpk roots in priority order, Lua modules, Mod Studio world |
-| `flkm/game/kitmap.py` | Kitserver map (`content/kits/map.txt`): team id → kit folder, league |
+| `flkm/game/sider_ini.py` | sider.ini: livecpk roots in priority order, Lua modules, Mod Studio world; the app's root |
+| `flkm/game/kitmap.py` | Kitserver map (`content/kits/map.txt`): team id → kit folder, league; the app's block |
+| `flkm/game/process.py` | Whether the game is running |
 | `flkm/game/cpk.py` | CRI CPK archives, read only |
 | `flkm/game/files.py` | Where the game takes a file from: livecpk roots, then `download/`, then `Data/` CPKs |
 | `flkm/game/pesdb.py` | Database tables: WESYS unpacking, teams, competitions and their names, entries, countries |

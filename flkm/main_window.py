@@ -1,6 +1,11 @@
-"""Main window: the team list on the left, the page of the chosen team on the right."""
+"""Main window: the team list on the left, the page of the chosen team on the right.
+
+Kits chosen with Replace… wait in the staging area (shown on the team page) until Changes > Deploy installs them;
+Changes > Undo last deploy puts back what the last deploy changed.
+"""
 
 import dataclasses
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -8,6 +13,7 @@ from PySide6.QtGui import QAction, QFont, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
+    QHBoxLayout,
     QLabel,
     QMainWindow,
     QMessageBox,
@@ -19,11 +25,14 @@ from PySide6.QtWidgets import (
 )
 
 import flkm
-from flkm import catalog, settings
-from flkm.team_page import TeamPage
+from flkm import catalog, deploy, settings
+from flkm.game import ftex, kits, process
+from flkm.staging import Staging
+from flkm.team_page import PENDING_COLOUR, TeamPage, slot_name
 from flkm.team_tree import TeamTree
 
 APP_NAME = "FL Kits Manager"
+GAME_NAME = "SP Football Life 2027"
 _SYSTEM_FONT: list[QFont] = []  # the application font before the user changed the text size
 
 
@@ -40,12 +49,17 @@ def _apply_text_size(size: int | None) -> None:
     QApplication.setFont(font)
 
 
+def _kits(n: int) -> str:
+    return f"{n} kit" if n == 1 else f"{n} kits"
+
+
 class MainWindow(QMainWindow):
     def __init__(self, game_dir: Path | None = None):
         super().__init__()
         self.setWindowTitle(f"{APP_NAME} {flkm.__version__}")
         self.setMinimumSize(1000, 650)
         self.settings = settings.load()
+        self.staging = Staging(settings.home() / "staging")
         self.catalog: catalog.Catalog | None = None
         self.game_dir: Path | None = None
         self.team_id: int | None = None  # the team whose page is open
@@ -53,7 +67,7 @@ class MainWindow(QMainWindow):
         self.tree = TeamTree()
         self.page = TeamPage(view=self.settings.view)
         self.start = QWidget()
-        self.start_text = QLabel("Choose the folder of SP Football Life 2027 to see its teams and kits.")
+        self.start_text = QLabel(f"Choose the folder of {GAME_NAME} to see its teams and kits.")
         self.start_text.setAlignment(Qt.AlignCenter)
         self.choose_button = QPushButton("Choose the game folder…")
         start_layout = QVBoxLayout(self.start)
@@ -64,11 +78,30 @@ class MainWindow(QMainWindow):
         self.pages = QStackedWidget()
         self.pages.addWidget(self.start)
         self.pages.addWidget(self.page)
+
+        self.links_banner = QWidget()  # shown when another tool removed the app's links to its kits
+        self.links_banner.setStyleSheet(f"background: {PENDING_COLOUR}; color: white")
+        self.links_text = QLabel()
+        self.links_text.setWordWrap(True)
+        self.relink_button = QPushButton("Re-apply")
+        banner_layout = QHBoxLayout(self.links_banner)
+        banner_layout.addWidget(self.links_text, 1)
+        banner_layout.addWidget(self.relink_button)
+        self.links_banner.hide()
+        right = QWidget()
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.addWidget(self.links_banner)
+        right_layout.addWidget(self.pages, 1)
+
         splitter = QSplitter()
         splitter.addWidget(self.tree)
-        splitter.addWidget(self.pages)
+        splitter.addWidget(right)
         splitter.setSizes([320, 880])
         self.setCentralWidget(splitter)
+        self.pending_label = QLabel()
+        self.pending_label.setStyleSheet(f"color: {PENDING_COLOUR}; font-weight: bold")
+        self.statusBar().addPermanentWidget(self.pending_label)
 
         menu = self.menuBar().addMenu("&File")
         self.game_action = QAction("&Game folder…", self)
@@ -85,6 +118,18 @@ class MainWindow(QMainWindow):
         self.default_text_action = QAction("&Default text size", self, shortcut=QKeySequence("Ctrl+0"))
         for action in (self.larger_text_action, self.smaller_text_action, self.default_text_action):
             view.addAction(action)
+        changes = self.menuBar().addMenu("&Changes")
+        self.deploy_action = QAction("&Deploy to the game", self, shortcut=QKeySequence("Ctrl+D"))
+        self.deploy_action.setStatusTip("Install the kits waiting for Deploy (the game must be closed)")
+        self.discard_action = QAction("Dis&card all changes", self)
+        self.undo_action = QAction("&Undo last deploy", self)
+        self.undo_action.setStatusTip("Put back the files the last deploy changed")
+        self.relink_action = QAction("&Re-apply links to the app's kits", self)
+        self.relink_action.setStatusTip("Write again the app's lines in map.txt and its root in sider.ini")
+        for action in (self.deploy_action, self.discard_action, self.undo_action):
+            changes.addAction(action)
+        changes.addSeparator()
+        changes.addAction(self.relink_action)
         self.larger_text_action.triggered.connect(lambda: self._step_text(+1))
         self.smaller_text_action.triggered.connect(lambda: self._step_text(-1))
         self.default_text_action.triggered.connect(lambda: self.set_text_size(None))
@@ -94,16 +139,26 @@ class MainWindow(QMainWindow):
         self.game_action.triggered.connect(self.choose_game)
         self.quit_action.triggered.connect(self.close)
         self.reload_action.triggered.connect(self.reload)
+        self.deploy_action.triggered.connect(self.deploy_changes)
+        self.discard_action.triggered.connect(self.discard_changes)
+        self.undo_action.triggered.connect(self.undo_deploy)
+        self.relink_action.triggered.connect(self.relink)
+        self.relink_button.clicked.connect(self.relink)
         self.tree.team_selected.connect(self.show_team)
         self.page.view_changed.connect(self._view_changed)
+        self.page.replace_requested.connect(self.replace_kit)
+        self.page.discard_requested.connect(self.keep_kit)
 
         if game_dir is not None:
             self.open_game(Path(game_dir))
         elif self.settings.game_dir and settings.is_game_dir(Path(self.settings.game_dir)):
             self.open_game(Path(self.settings.game_dir))
+        self._update_changes()
+
+    # --- game and teams ----------------------------------------------------------------------------------------------
 
     def choose_game(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Folder of SP Football Life 2027", self.settings.game_dir or "")
+        folder = QFileDialog.getExistingDirectory(self, f"Folder of {GAME_NAME}", self.settings.game_dir or "")
         if folder:
             self.open_game(Path(folder))
 
@@ -112,7 +167,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 APP_NAME,
-                f"{game_dir} is not the SP Football Life 2027 folder: SiderAddons\\sider.ini is missing.",
+                f"{game_dir} is not the {GAME_NAME} folder: SiderAddons\\sider.ini is missing.",
             )
             return
         QGuiApplication.setOverrideCursor(Qt.WaitCursor)
@@ -128,6 +183,7 @@ class MainWindow(QMainWindow):
         self.reload_action.setEnabled(True)
         self.statusBar().showMessage(f"{len(self.catalog.teams)} teams · {game_dir}")
         self._save(game_dir=str(game_dir))
+        self._update_changes()
 
     def reload(self) -> None:
         """reads the game again, keeping the search and the open team"""
@@ -137,13 +193,141 @@ class MainWindow(QMainWindow):
             self.show_team(team_id)  # the search hides it
 
     def show_team(self, team_id: int) -> None:
+        staged = self.staging.for_team(team_id)
+        pending = {
+            slot: kits.Kit(
+                team_id, slot, f"New kit, not deployed yet: {Path(c.source).name}", file=self.staging.path(c)
+            )
+            for slot, c in staged.items()
+        }
         QGuiApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            self.page.show_team(self.catalog.get(team_id), self.catalog.kits(team_id))
+            self.page.show_team(self.catalog.get(team_id), self.catalog.kits(team_id), pending)
         finally:
             QGuiApplication.restoreOverrideCursor()
+        for card in self.page.cards:
+            if card.pending:
+                card.source.setToolTip(staged[card.kit.slot].source)  # the whole path of the chosen file
         self.team_id = team_id
         self.pages.setCurrentWidget(self.page)
+
+    # --- changes -----------------------------------------------------------------------------------------------------
+
+    def replace_kit(self, slot: str) -> None:
+        team = self.catalog.get(self.team_id)
+        path, _ = QFileDialog.getOpenFileName(
+            self, f"New {slot_name(slot)} kit for {team.name}", "", "FTEX textures (*.ftex)"
+        )
+        if not path:
+            return
+        try:
+            self.staging.add(team.id, team.name, slot, Path(path))
+        except (ftex.FtexError, ValueError, OSError) as e:
+            QMessageBox.warning(self, APP_NAME, f"{path} is not a readable FTEX texture: {e}")
+            return
+        self._changes_made()
+
+    def keep_kit(self, slot: str) -> None:
+        self.staging.remove(self.team_id, slot)
+        self._changes_made()
+
+    def discard_changes(self) -> None:
+        if self._ask(f"Discard {_kits(len(self.staging.changes))} waiting for Deploy?"):
+            self.staging.clear()
+            self._changes_made()
+
+    def deploy_changes(self) -> None:
+        changes = self.staging.changes
+        listing = "\n".join(f"{c.team_name}: {slot_name(c.slot)}" for c in changes)
+        question = (
+            f"Install {_kits(len(changes))} in the game?\n\n{listing}\n\n"
+            "The game must be closed. Changes > Undo last deploy puts back the files as they were."
+        )
+        if not self._ask(question):
+            return
+        done = self._game_op(
+            "Deploy",
+            lambda unknown_ok: deploy.deploy(
+                self.game_dir,
+                self.staging,
+                settings.home(),
+                game_running=process.game_running,
+                unknown_ok=unknown_ok,
+            ),
+        )
+        if done:
+            them = "it" if done.changes == 1 else "them"
+            self._after_game_change(f"Deployed {_kits(done.changes)}. Restart the game to see {them}.")
+
+    def undo_deploy(self) -> None:
+        last = deploy.history(settings.home())[0]
+        what = _kits(last.changes) if last.changes else "re-applied links"
+        if not self._ask(f"Undo the last deploy ({what})? The files it changed are put back as they were."):
+            return
+        undone = self._game_op(
+            "Undo",
+            lambda unknown_ok: deploy.undo(
+                self.game_dir, settings.home(), game_running=process.game_running, unknown_ok=unknown_ok
+            ),
+        )
+        if undone:
+            self._after_game_change("Last deploy undone. Restart the game to see the change.")
+
+    def relink(self) -> None:
+        done = self._game_op(
+            "Re-apply",
+            lambda unknown_ok: deploy.relink(
+                self.game_dir, settings.home(), game_running=process.game_running, unknown_ok=unknown_ok
+            ),
+        )
+        if done:
+            self._after_game_change("Links to the app's kits written again. Restart the game to see them.")
+
+    def _game_op(self, name: str, op: Callable[[bool], deploy.Deployment]) -> deploy.Deployment | None:
+        """runs a change to the game files; asks the user when it cannot tell whether the game is running"""
+        try:
+            try:
+                return op(False)
+            except deploy.GameStateUnknown as e:
+                if not self._ask(f"{e}\n\nIs the game closed? Go on only if it is."):
+                    return None
+                return op(True)
+        except deploy.DeployError as e:
+            QMessageBox.warning(self, APP_NAME, str(e))
+        except OSError as e:
+            QMessageBox.warning(self, APP_NAME, f"{name} failed: {e.strerror or e}")
+        return None
+
+    def _after_game_change(self, message: str) -> None:
+        self.reload()
+        self.statusBar().showMessage(message)
+
+    def _changes_made(self) -> None:
+        self._update_changes()
+        self.show_team(self.team_id)
+
+    def _update_changes(self) -> None:
+        """menu, status bar and banner follow the staging area and the game"""
+        open_game = self.game_dir is not None
+        waiting = len(self.staging.changes)
+        self.deploy_action.setEnabled(open_game and waiting > 0)
+        self.discard_action.setEnabled(waiting > 0)
+        self.undo_action.setEnabled(open_game and bool(deploy.history(settings.home())))
+        self.relink_action.setEnabled(open_game)
+        self.pending_label.setText(f"{_kits(waiting)} waiting for Deploy")
+        self.pending_label.setVisible(waiting > 0)
+        state = deploy.status(self.game_dir) if open_game else deploy.Status(False, False)
+        lost = [name for name, gone in (("map.txt", state.block_lost), ("sider.ini", state.root_lost)) if gone]
+        self.links_text.setText(
+            f"{' and '.join(lost)} no longer point{'s' if len(lost) == 1 else ''} to the kits installed by "
+            f"{APP_NAME} (another tool, like a Mod Studio Build, rewrote {'it' if len(lost) == 1 else 'them'})."
+        )
+        self.links_banner.setVisible(bool(lost))
+
+    def _ask(self, question: str) -> bool:
+        return QMessageBox.question(self, APP_NAME, question) == QMessageBox.Yes
+
+    # --- settings ----------------------------------------------------------------------------------------------------
 
     def set_text_size(self, size: int | None) -> None:
         """text size in points for the whole app; None = the system's"""

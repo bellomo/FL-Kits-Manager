@@ -53,7 +53,7 @@ def _slot_key(slot: str) -> tuple[int, int]:
     return (slot[0] == "g", int(slot[1:]))
 
 
-def _folder_kits(team_id: int, folder: Path, label: str) -> list[Kit]:
+def folder_kits(team_id: int, folder: Path, label: str) -> list[Kit]:
     slots = _lines(folder / "order.ini") + _lines(folder / "gk_order.ini")
     if not slots:
         slots = sorted((d.name for d in folder.iterdir() if d.is_dir() and _SLOT.match(d.name)), key=_slot_key)
@@ -70,7 +70,7 @@ def _folder_kits(team_id: int, folder: Path, label: str) -> list[Kit]:
 def team_kits(team_id: int, kit_map: KitMap, game: GameFiles) -> list[Kit]:
     folder = kit_map.path_of(team_id)
     if folder is not None and folder.is_dir():
-        return _folder_kits(team_id, folder, kit_map.entries[team_id].folder)
+        return folder_kits(team_id, folder, kit_map.entries[team_id].folder)
     out = []
     for slot in GAME_SLOTS:
         found = game.find(f"{TEXTURES}u{team_id:04d}{slot}.ftex")

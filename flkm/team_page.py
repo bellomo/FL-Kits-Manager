@@ -20,6 +20,7 @@ from flkm.catalog import Team
 UNROLLED = 320  # size of an unrolled kit on the page
 TITLE_EXTRA = 6  # the team name is this many points larger than the text
 COLUMNS = {"folded": 2, "unrolled": 3}
+PENDING_COLOUR = "#d9822b"  # kits waiting for Deploy
 _NAMES = {"p1": "Home", "p2": "Away", "p3": "Third", "g1": "Goalkeeper"}
 
 
@@ -43,20 +44,34 @@ def kit_picture(kit, view: str) -> Image.Image:
 
 
 class KitCard(QWidget):
-    def __init__(self, kit, view: str, parent: QWidget | None = None):
+    """one kit; `pending` = the kit chosen to replace the current one, not deployed yet"""
+
+    def __init__(self, kit, view: str, pending: bool = False, parent: QWidget | None = None):
         super().__init__(parent)
-        self.kit = kit
-        self.name = QLabel(slot_name(kit.slot))
+        self.kit, self.pending = kit, pending
+        self.name = QLabel(slot_name(kit.slot) + (" · new" if pending else ""))
         bold = QFont()
         bold.setBold(True)
         self.name.setFont(bold)
+        if pending:
+            self.name.setStyleSheet(f"color: {PENDING_COLOUR}")
         self.picture = QLabel(alignment=Qt.AlignCenter)
         self.source = QLabel(kit.source)
-        self.source.setStyleSheet("color: gray")
+        self.source.setStyleSheet(f"color: {PENDING_COLOUR if pending else 'gray'}")
         self.source.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.source.setWordWrap(True)
+        self.replace_button = QPushButton("Replace…")
+        self.replace_button.setToolTip("Choose an .ftex texture to use for this kit (installed by Deploy)")
+        self.discard_button = QPushButton("Keep the current kit")
+        self.discard_button.setVisible(pending)
+        buttons = QHBoxLayout()
+        buttons.addWidget(self.replace_button)
+        buttons.addWidget(self.discard_button)
+        buttons.addStretch()
         layout = QVBoxLayout(self)
         for w in (self.name, self.picture, self.source):
             layout.addWidget(w)
+        layout.addLayout(buttons)
         self.draw(view)
 
     def draw(self, view: str) -> None:
@@ -68,6 +83,8 @@ class KitCard(QWidget):
 
 class TeamPage(QWidget):
     view_changed = Signal(str)
+    replace_requested = Signal(str)  # slot
+    discard_requested = Signal(str)  # slot
 
     def __init__(self, view: str = "folded", parent: QWidget | None = None):
         super().__init__(parent)
@@ -115,7 +132,9 @@ class TeamPage(QWidget):
             self._title_font()
         super().changeEvent(event)
 
-    def show_team(self, team: Team, kits: list) -> None:
+    def show_team(self, team: Team, kits: list, pending: dict | None = None) -> None:
+        """kits: the team's kits; pending: slot -> kit waiting for Deploy, shown instead of the current one"""
+        pending = pending or {}
         self.title.setText(team.name)
         self.details.setText(
             " · ".join(str(v) for v in (f"id {team.id}", team.abbr, team.league, team.country, team.federation) if v)
@@ -123,7 +142,11 @@ class TeamPage(QWidget):
         for card in self.cards:
             card.setParent(None)
             card.deleteLater()
-        self.cards = [KitCard(k, self.view) for k in kits]
+        self.cards = [KitCard(pending.get(k.slot, k), self.view, k.slot in pending) for k in kits]
+        for card in self.cards:
+            slot = card.kit.slot
+            card.replace_button.clicked.connect(lambda _=False, s=slot: self.replace_requested.emit(s))
+            card.discard_button.clicked.connect(lambda _=False, s=slot: self.discard_requested.emit(s))
         self._place()
         self.empty.setVisible(not kits)
 
