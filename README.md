@@ -21,7 +21,10 @@
    - [Prerequisites](#prerequisites)
    - [Install](#install)
 3. [Usage](#usage)
-   - [What the app writes](#what-the-app-writes)
+   - [View kits and logos](#view)
+   - [Replace one kit or logo](#replace-one)
+   - [Replace many: import kits and logos](#replace-many)
+   - [Deploy and what the app writes](#what-the-app-writes)
    - [Claude (optional)](#claude-optional)
 4. [Roadmap](#roadmap)
 5. [Development](#development)
@@ -39,15 +42,17 @@ A Windows app to manage the kits and logos installed in **SP Football Life 2027*
 
 - **Browse** the teams by federation, country and league, and see each team's kits folded (as in the game) or
   unrolled (the texture).
-- **Replace** kits from a folder or a zip of external files, matched to teams by id or by name.
+- **Replace** one kit, crest or competition logo with a file of your choice, or many at once from a folder or a zip
+  (kits and logos matched to teams and competitions by id or by name).
 - **Generate** kits from photos: the photos you load go through an end-to-end script (no AI needed); with Claude Code,
   the app can also find the photos and review the result.
-- **Logos**: see, replace or find on the web the crests of the teams and the logos of the competitions.
+- **Logos**: see and replace the crests of the teams and the logos of the competitions (finding them on the web with
+  Claude comes later).
 - **Deploy** the changes into the game in one step, with a backup and an undo.
 
 The app ships no kits and no logos: it reads what is installed in your game and edits it.
 
-> Status: early development: browsing teams and kits, importing whole kits from kit packs (folder or zip), replacing
+> Status: early development: browsing teams and kits, importing kits and logos from packs (folder or zip), replacing
 > a kit's texture with an `.ftex`, `.png` or `.dds` file, team crests and competition logos, Deploy and Undo work;
 > kits from photos come next. See the [roadmap](#roadmap).
 
@@ -86,53 +91,82 @@ No Python is needed: the exe contains everything.
 
 ## 🎮 Usage
 
+<a id="view"></a>
+
+### 👀 View kits and logos
+
+**Teams.** The **Teams** tab lists every team of the game by federation, country and league (national teams under
+their country, as *National team*); type a name or an id to search. A team's page shows:
+
+- its crest, with the file it comes from, and its id, league, country and federation;
+- every kit it wears (Home, Away, Third, goalkeepers...), **Folded** as the game shows it (front and back) or
+  **Unrolled** (the whole texture);
+- where the files are: *Crest in* and *Kits in* give the folder once, each with **Open folder**; under each kit
+  is only its file name (`<cpk> › <file>` for one inside a game archive).
+
+**Competitions.** The **Competitions** tab lists the game's competitions by federation and country (continental and
+world competitions under *International*); the ones Mod Studio adds are named as Mod Studio named them. A
+competition's page shows its logo in the three variants the game uses, each on a light and a dark background:
+*Normal*, *Dark* (for light backgrounds) and *White* (for dark backgrounds). Some of the game's own logos come in
+only some of them; a missing one shows *Not in the game files*. *Logo in* gives the folder, with **Open folder**.
+
+Nothing is changed while you look: the app reads the game as Sider shows it (the livecpk folders of `sider.ini` first,
+then the update and base archives).
+
+<a id="replace-one"></a>
+
+### 🔁 Replace one kit or logo
+
+- **A kit:** **Replace…** under the kit takes an `.ftex` texture, or a `.png` or `.dds` image (square, 256 to 4096
+  pixels; the game's kits are 2048), made into an FTEX texture that keeps the settings of the kit it replaces. Only
+  the texture changes: the kit's numbers and names stay.
+- **A crest:** **Replace crest…** on the team page takes a picture (PNG, DDS, JPEG or WebP; one that is not square is
+  centred on transparency) and makes the game's three sizes, 128, 256 and 512 pixels.
+- **A competition's logo:** **Replace logo…** uses one picture for all three variants; **Replace…** under a variant
+  changes only that one.
+
+A replacement is not written to the game yet: it shows as *new* (in orange) and the status bar counts what is
+waiting. **Keep the current kit** / **Keep the current crest** / **Keep the current logo** drops one, Changes →
+**Discard all changes** drops them all.
+
+<a id="replace-many"></a>
+
+### 📦 Replace many: import kits and logos
+
+Kits and logos are often shared as packs: a folder or a zip. Changes → **Import kits and logos (folder)…** or
+**(zip)…** reads one and finds out where each thing goes; a dialog lists what was found, with the sure ones ticked and
+the others (in orange) saying why they need checking. Untick what you do not want, then **Add to changes**: all of it
+waits for Deploy, like a single replacement.
+
+- **Kits:** a kitserver folder per team, with a folder per kit (`p1`, `p2`, ... players; `g1`, ... goalkeepers) and
+  its `config.txt` and textures, often with the `map.txt` lines to copy. Each team folder is matched with a game team
+  by the id of those lines, checked by name (ids change between patches), or by name alone; **Choose team…** picks
+  the team by id or name. Each kit of the pack replaces the team's kit of the same kind; the team's other kits stay.
+- **Logos:** pictures named as the game names them, wherever they are in the pack (`e_000186_r_l.png` is a team's
+  crest, `emb_0016_w_ll.png` the white variant of a competition's logo; the largest size of each is used), and
+  pictures named after a team or a competition (`Bologna.png`, `Coppa Italia.jpg`). The dialog shows a small picture
+  of each; **Choose…** gives a logo to a team or a competition by id or name. A competition's logo replaces only the
+  variants the pack has; a picture named after the competition is used for all three.
+
+A pack can have kits, logos or both: the kit dialog comes first, then the logo dialog. A password-protected zip has
+to be extracted first, then imported as a folder.
+
 <a id="what-the-app-writes"></a>
 
-### ✍️ What the app writes
+### ✍️ Deploy and what the app writes
 
-**Kit packs.** Fans share kits as kit packs: a folder or a zip with one kitserver folder per team, which has one
-folder per kit (`p1`, `p2`, ... players, `g1`, ... goalkeepers) with `config.txt`, the kit's texture and the textures of
-its numbers and names, often with the `map.txt` lines to copy. Changes → **Import kits and logos (folder)…** or **(zip)…**
-reads it and matches each team folder with a game team: by the id of the pack's map lines, checked by name (ids
-change between patches), or by name alone. A dialog shows every team folder; sure matches are ticked, the others say
-why they need checking, and **Choose team…** picks the team by id or name. The ticked teams' kits wait for Deploy,
-each replacing the team's kit of the same kind. A team whose kits come from the game files gets a kitserver folder
-with only the pack's kits. A password-protected zip has to be extracted first, then imported as a folder.
+Changes → **Deploy to the game** (Ctrl+D) installs everything that is waiting, after showing the list:
 
-**Replace…** on a kit chooses a new texture for it: an `.ftex` file, or a `.png` or `.dds` image (square, 256, 512,
-1024, 2048 or 4096 pixels; the game's kits are 2048), which the app turns into an FTEX texture with every mip, keeping
-the header of the kit it replaces. Only the texture changes: the kit's settings, numbers and names stay. The change
-is not written to the game yet: the kit shows
-as *new* (in orange) and the status bar counts the kits waiting; **Keep the current kit** or Changes → Discard all
-changes drops them. Changes → **Deploy to the game** (Ctrl+D) installs them:
-
-- a team with a kitserver folder: the folder is copied once to `content\kits\FLKitsManager\<id> <name>` with the new
-  texture, and a marked block at the end of `map.txt` points the team there (Mod Studio's own folders and lines are
-  not changed);
-- a team whose kits come from the game files: the texture goes to `livecpk\FLKitsManager`, which is put first in
-  `sider.ini`;
+- a kit of a team with a kitserver folder: the folder is copied once to `content\kits\FLKitsManager\<id> <name>`
+  with the new kit, and a marked block at the end of `map.txt` points the team there (Mod Studio's own folders and
+  lines are not changed);
+- a kit of a team whose kits come from the game files, and every crest and logo: the files go to
+  `livecpk\FLKitsManager`, which is put first in `sider.ini`;
 - `map.txt` and `sider.ini` get a `<file>.bak-<date>` copy before their first change of the day; the game's CPK files
   are never touched;
 - every file a deploy writes is recorded (with a copy of what was there) in `%APPDATA%\FLKitsManager\deploys`, and
   Changes → **Undo last deploy** puts it back, one deploy at a time;
-- the game must be closed (the app checks; when it cannot tell, it asks).
-
-**Logos.** The team page shows the team's crest next to its name; **Replace crest…** takes a picture (PNG, DDS,
-JPEG or WebP; one that is not square is centred on a transparent square) and makes the three sizes the game uses
-(128, 256 and 512 pixels, `common\render\symbol\flag\e_<id>_r*.png`). The **Competitions** tab lists the game's
-competitions by federation and country; a competition's page shows the three variants of its logo (normal, dark for
-light backgrounds, white for dark backgrounds; `common\render\symbol\emblemLc\emb_<id>*.png`, 256 and 512 pixels) on
-a light and a dark background. **Replace logo…** uses one picture for all three variants, **Replace…** under a
-variant changes only that one. Logos wait for Deploy like kits, then go to `livecpk\FLKitsManager`, which comes
-before the other roots in `sider.ini`; Undo puts them back.
-
-**Logo packs.** The same **Import kits and logos** reads the logos in a pack (alone or with kits): pictures named as
-the game names them, wherever they are (`e_000186_r_l.png` is a team's crest, `emb_0016_w_ll.png` the white variant
-of a competition's logo; the largest size of each is used), and other pictures (PNG, DDS, JPEG, WebP) named after a
-team or a competition (`Bologna.png`, `Coppa Italia.jpg`). A dialog shows each logo with a small picture and where it
-goes; sure ones are ticked, the others say why they need checking, and **Choose…** gives a logo to a team or a
-competition by id or name. A competition's logo replaces only the variants the pack has; a picture named after the
-competition is used for all three. Pictures in kit folders are not logos.
+- the game must be closed (the app checks; when it cannot tell, it asks). Restart the game to see the changes.
 
 A Mod Studio Build rewrites `map.txt` and can drop the app's block (another tool can do the same to `sider.ini`): the
 app then shows a bar with **Re-apply**, also in Changes → Re-apply links to the app's kits.
