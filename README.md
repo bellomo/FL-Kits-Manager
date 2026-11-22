@@ -174,6 +174,9 @@ git config core.hooksPath scripts/hooks
 
 ## 📄 License
 
-[MIT](LICENSE): use, copy, change and share it freely, keeping the copyright notice.
+[PolyForm Noncommercial 1.0.0](LICENSE): the source is public and you may use, change and share it for any
+noncommercial purpose (personal use, hobby, study, non-profit organisations), keeping the `Required Notice` line.
+Commercial use, such as selling the app or using it for profit, is not allowed. This makes the project source
+available rather than open source in the OSI sense.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
