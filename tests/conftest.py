@@ -185,6 +185,21 @@ def build_ftex(fmt: int, width: int, height: int, mips: list[bytes], chunk: int 
     return head.ljust(0x40, b"\0") + table + data
 
 
+def wesys(table: bytes) -> bytes:
+    """a pesdb table packed like the game's: 16-byte WESYS header, then zlib"""
+    packed = zlib.compress(table)
+    return b"\x00\x01\x01WESYS" + struct.pack("<II", len(packed), len(table)) + packed
+
+
+def team_record(team_id: int, name: str, abbr: str) -> bytes:
+    """a 1532-byte Team.bin record: id at 8, English name at 368 (70 bytes), abbreviation at 882"""
+    r = bytearray(1532)
+    struct.pack_into("<I", r, 8, team_id)
+    r[368 : 368 + 70] = name.encode().ljust(70, b"\0")
+    r[882 : 882 + 10] = abbr.encode().ljust(10, b"\0")
+    return bytes(r)
+
+
 @pytest.fixture
 def game(tmp_path):
     """an empty fake game folder; tests add the files they need (sider.ini, map.txt, tiny CPK/FTEX)"""
