@@ -107,3 +107,9 @@ def test_load_a_picture(tmp_path):
         logos.load(bad)
     with pytest.raises(logos.LogoError, match="cannot be read as a picture"):
         logos.load(tmp_path / "missing.png")
+
+
+def test_read_a_picture_from_its_bytes():
+    assert logos.read_picture(png(64, width=32), "crest.png").size == (32, 64)
+    with pytest.raises(logos.LogoError, match="logos/bad.png cannot be read as a picture"):
+        logos.read_picture(b"nope", "logos/bad.png")

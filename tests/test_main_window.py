@@ -13,6 +13,7 @@ from conftest import build_ftex, competition_record, dxt5_block, team_record, we
 from flkm import deploy, main_window, settings
 from flkm.game import ftex, process
 from flkm.import_dialog import ImportDialog
+from flkm.logo_import_dialog import LogoImportDialog
 from flkm.main_window import MainWindow
 
 
@@ -551,7 +552,7 @@ def test_import_of_something_that_is_not_a_pack(qtbot, game, tmp_path, dialogs, 
     w = bologna(qtbot, game)
     (tmp_path / "empty").mkdir()
     w.import_pack(tmp_path / "empty")
-    assert dialogs.infos == ["No kitserver team folders (with kit folders like p1, g1) found in empty."]
+    assert dialogs.infos == ["No kitserver team folders (with kit folders like p1, g1) or logos found in empty."]
     bad = tmp_path / "bad.zip"
     bad.write_bytes(b"nope")
     w.import_pack(bad)
@@ -771,3 +772,73 @@ def test_logo_variants_in_different_folders_show_their_path_from_the_common_fold
     assert normal.source.text() == str(PurePath("_World", EMB, "emb_0016_l.png"))
     assert white.source.text() == str(PurePath("FLKitsManager", EMB, "emb_0016_w_l.png"))
     assert white.source.toolTip() == str(other / "emb_0016_w_l.png")
+
+
+# --- importing logos -------------------------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def accept_logos(monkeypatch):
+    """the logo import dialog is accepted as it opens (with its ticked rows)"""
+    seen = []
+
+    def exec_(dialog):
+        seen.append(dialog)
+        return QDialog.Accepted
+
+    monkeypatch.setattr(LogoImportDialog, "exec", exec_)
+    return seen
+
+
+def put_logos(base, broken=False):
+    (base / "Logos" / "flag").mkdir(parents=True)
+    Image.new("RGBA", (256, 256), (0, 0, 200, 255)).save(base / "Logos" / "flag" / "e_000186_r_l.png")
+    Image.new("RGBA", (256, 256), (255, 255, 255, 255)).save(base / "Logos" / "emb_0016_w_l.png")
+    if broken:
+        (base / "Logos" / "emb_0016_b_l.png").write_bytes(b"not a picture")
+    return base
+
+
+def test_import_a_pack_with_kits_and_logos(qtbot, game, tmp_path, dialogs, accept_import, accept_logos):
+    w = make_window(qtbot, game_dir=comp_game(game))
+    w.tree.select_team(186)
+    w.import_pack(put_logos(make_pack(tmp_path)))
+    assert len(accept_import) == 1
+    [found] = accept_logos
+    assert found.windowTitle() == "Import logos from Serie A Kitpack" and len(found.chosen()) == 2
+    assert [(c.team_id, c.slot) for c in w.staging.changes] == [
+        (186, "p1"),
+        (186, "p3"),
+        (186, "crest"),
+        (16, "emblem"),
+    ]
+    assert w.statusBar().currentMessage() == "2 kits and 2 logos from Serie A Kitpack waiting for Deploy."
+    assert w.page.crest_source.text() == "New crest, not deployed yet: e_000186_r_l.png"
+    assert w.page.crest_source.toolTip() == "Serie A Kitpack: Serie A Kitpack/Logos/flag/e_000186_r_l.png"
+    w.sides.setCurrentWidget(w.comp_tree)
+    w.comp_tree.select(16)
+    assert [c.source.text() for c in w.comp_page.cards] == [
+        "emb_0016_l.png",
+        "Not in the game files",
+        "New logo, not deployed yet: emb_0016_w_l.png",
+    ]
+
+
+def test_import_only_logos_while_a_competition_is_open(qtbot, game, tmp_path, dialogs, accept_import, accept_logos):
+    w = coppa(qtbot, game)
+    w.import_pack(put_logos(tmp_path / "logos", broken=True))
+    assert accept_import == []  # no kits in the pack
+    assert [(c.team_id, c.slot) for c in w.staging.changes] == [(186, "crest"), (16, "emblem")]
+    assert w.comp_page.cards[2].source.text() == "New logo, not deployed yet: emb_0016_w_l.png"
+    assert dialogs.warnings[0].startswith("Some logos were not added:\nlogos/Logos/emb_0016_b_l.png cannot be read")
+    assert w.statusBar().currentMessage() == "2 logos from logos waiting for Deploy."
+
+
+def test_logo_import_cancelled(qtbot, game, tmp_path, dialogs, accept_import, monkeypatch):
+    w = make_window(qtbot, game_dir=comp_game(game))
+    monkeypatch.setattr(LogoImportDialog, "exec", lambda d: QDialog.Rejected)
+    w.import_pack(put_logos(tmp_path / "logos"))
+    assert w.staging.changes == [] and w.pages.currentWidget() is w.start
+    monkeypatch.setattr(ImportDialog, "exec", lambda d: QDialog.Rejected)
+    w.import_pack(put_logos(make_pack(tmp_path)))  # both dialogs cancelled
+    assert w.staging.changes == []

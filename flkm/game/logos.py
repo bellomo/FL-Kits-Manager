@@ -61,10 +61,19 @@ def load(path: Path) -> Image.Image:
     """a picture file (PNG, DDS, JPEG, WebP...) as RGBA"""
     path = Path(path)
     try:
-        with Image.open(path) as im:
+        data = path.read_bytes()
+    except OSError as e:
+        raise LogoError(f"{path.name} cannot be read as a picture: {e}") from e
+    return read_picture(data, path.name)
+
+
+def read_picture(data: bytes, name: str) -> Image.Image:
+    """a picture (PNG, DDS, JPEG, WebP...) from its bytes as RGBA; name: the file's, for the error message"""
+    try:
+        with Image.open(io.BytesIO(data)) as im:
             return im.convert("RGBA")
     except (OSError, ValueError) as e:
-        raise LogoError(f"{path.name} cannot be read as a picture: {e}") from e
+        raise LogoError(f"{name} cannot be read as a picture: {e}") from e
 
 
 def _square(image: Image.Image) -> Image.Image:

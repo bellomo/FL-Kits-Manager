@@ -92,7 +92,7 @@ No Python is needed: the exe contains everything.
 
 **Kit packs.** Fans share kits as kit packs: a folder or a zip with one kitserver folder per team, which has one
 folder per kit (`p1`, `p2`, ... players, `g1`, ... goalkeepers) with `config.txt`, the kit's texture and the textures of
-its numbers and names, often with the `map.txt` lines to copy. Changes → **Import kit pack (folder)…** or **(zip)…**
+its numbers and names, often with the `map.txt` lines to copy. Changes → **Import kits and logos (folder)…** or **(zip)…**
 reads it and matches each team folder with a game team: by the id of the pack's map lines, checked by name (ids
 change between patches), or by name alone. A dialog shows every team folder; sure matches are ticked, the others say
 why they need checking, and **Choose team…** picks the team by id or name. The ticked teams' kits wait for Deploy,
@@ -125,6 +125,14 @@ light backgrounds, white for dark backgrounds; `common\render\symbol\emblemLc\em
 a light and a dark background. **Replace logo…** uses one picture for all three variants, **Replace…** under a
 variant changes only that one. Logos wait for Deploy like kits, then go to `livecpk\FLKitsManager`, which comes
 before the other roots in `sider.ini`; Undo puts them back.
+
+**Logo packs.** The same **Import kits and logos** reads the logos in a pack (alone or with kits): pictures named as
+the game names them, wherever they are (`e_000186_r_l.png` is a team's crest, `emb_0016_w_ll.png` the white variant
+of a competition's logo; the largest size of each is used), and other pictures (PNG, DDS, JPEG, WebP) named after a
+team or a competition (`Bologna.png`, `Coppa Italia.jpg`). A dialog shows each logo with a small picture and where it
+goes; sure ones are ticked, the others say why they need checking, and **Choose…** gives a logo to a team or a
+competition by id or name. A competition's logo replaces only the variants the pack has; a picture named after the
+competition is used for all three. Pictures in kit folders are not logos.
 
 A Mod Studio Build rewrites `map.txt` and can drop the app's block (another tool can do the same to `sider.ini`): the
 app then shows a bar with **Re-apply**, also in Changes → Re-apply links to the app's kits.
@@ -185,7 +193,9 @@ Development rules (test-driven, 100% line and branch coverage, no network in tes
 | `flkm/competition_tree.py` | Competition list: federation > country > competition, search by name, code or id |
 | `flkm/competition_page.py` | Competition page: the three variants of its logo on light and dark, Replace logo… |
 | `flkm/import_dialog.py` | Import dialog: the pack's team folders, the game team of each one, Choose team… |
+| `flkm/logo_import_dialog.py` | Logo import dialog: the pack's logos, a picture of each, where it goes, Choose… |
 | `flkm/pack.py` | Kit packs (folder or zip): team folders, their kits, map lines; matching with the game's teams |
+| `flkm/logo_pack.py` | Logos in a pack: by game file name or by team or competition name; the files of the chosen ones |
 | `flkm/staging.py` | Kits chosen to replace the game's (textures or whole kits), kept until Deploy (`%APPDATA%\FLKitsManager\staging`) |
 | `flkm/deploy.py` | Deploy, Undo, Re-apply links, status of the app's links, deploy history |
 | `flkm/render.py` | Kit pictures from a texture: unrolled, and folded (front and back as in the game) |

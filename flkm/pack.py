@@ -59,6 +59,17 @@ class Pack:
         self._textures: dict[tuple[str, str], str] = {}
         self.teams = self._find_teams()
 
+    @property
+    def paths(self) -> list[str]:
+        """every file in the pack"""
+        return list(self._files)
+
+    def read(self, path: str) -> bytes:
+        try:
+            return self._files[path]()
+        except RuntimeError as e:  # zipfile: encrypted member
+            raise PackError(f"The zip is password protected: extract it, then import the folder. ({e})") from e
+
     def _read(self, path: str) -> bytes:
         return self._files[path]()
 
@@ -127,10 +138,7 @@ class Pack:
     def kit_files(self, team: PackTeam, slot: str) -> dict[str, bytes]:
         """the files of one kit: name -> bytes"""
         files, _ = self._children(_join(team.path, slot))
-        try:
-            return {name: self._read(_join(team.path, slot, name)) for name in sorted(files)}
-        except RuntimeError as e:  # zipfile: encrypted member
-            raise PackError(f"The zip is password protected: extract it, then import the folder. ({e})") from e
+        return {name: self.read(_join(team.path, slot, name)) for name in sorted(files)}
 
 
 def _safe(name: str) -> bool:

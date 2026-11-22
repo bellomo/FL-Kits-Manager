@@ -23,6 +23,10 @@ Versions follow semver (`MAJOR.MINOR.PATCH`); the release zip is `FLKitsManager_
   supercups by the recipe of their league, every competition of a Mod Studio league (league cup, play-offs) in the
   country of its league, the others (e.g. FL_UECL, UEFA Conference League) by
   the name Mod Studio writes in their regulation records.
+- Logo packs: Import kits and logos (folder or zip) also reads the logos in a pack: pictures named as the game names
+  them (the largest size of each) and pictures named after a team or a competition. A dialog shows each logo with a
+  small picture and where it goes, ticks the sure ones and lets the user choose the team or competition of the
+  others; the chosen logos wait for Deploy.
 - Team page: the folder of the team's kits once at the top, with Open folder; each kit shows only its file name in
   that folder (`<cpk> › <file>` for a kit inside a game archive). Above it, the folder of the crest the same way
   (Crest in…, with its own Open folder); the crest shows only its file name. The competition page does the same

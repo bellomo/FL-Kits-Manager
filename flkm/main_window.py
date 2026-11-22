@@ -30,11 +30,12 @@ from PySide6.QtWidgets import (
 )
 
 import flkm
-from flkm import catalog, deploy, pack, settings
+from flkm import catalog, deploy, logo_pack, pack, settings
 from flkm.competition_page import CompetitionPage
 from flkm.competition_tree import CompetitionTree
 from flkm.game import ftex, kits, logos, process
 from flkm.import_dialog import ImportDialog
+from flkm.logo_import_dialog import LogoImportDialog
 from flkm.staging import Staging
 from flkm.team_page import PENDING_COLOUR, TeamPage, common_folder, slot_name
 from flkm.team_tree import TeamTree
@@ -148,8 +149,8 @@ class MainWindow(QMainWindow):
         for action in (self.larger_text_action, self.smaller_text_action, self.default_text_action):
             view.addAction(action)
         changes = self.menuBar().addMenu("&Changes")
-        self.import_folder_action = QAction("Import kit pack (&folder)…", self, enabled=False)
-        self.import_zip_action = QAction("Import kit pack (&zip)…", self, enabled=False)
+        self.import_folder_action = QAction("Import kits and logos (&folder)…", self, enabled=False)
+        self.import_zip_action = QAction("Import kits and logos (&zip)…", self, enabled=False)
         for action in (self.import_folder_action, self.import_zip_action):
             action.setStatusTip("Take whole kits from a kit pack (kitserver team folders); they wait for Deploy")
             changes.addAction(action)
@@ -355,31 +356,64 @@ class MainWindow(QMainWindow):
     # --- changes -----------------------------------------------------------------------------------------------------
 
     def import_folder(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Folder of a kit pack", "")
+        folder = QFileDialog.getExistingDirectory(self, "Folder of a kit or logo pack", "")
         if folder:
             self.import_pack(Path(folder))
 
     def import_zip(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Kit pack", "", "Zip files (*.zip)")
+        path, _ = QFileDialog.getOpenFileName(self, "Kit or logo pack", "", "Zip files (*.zip)")
         if path:
             self.import_pack(Path(path))
 
     def import_pack(self, source: Path) -> None:
-        """matches the pack's team folders with the game's teams; the kits the user confirms wait for Deploy"""
+        """matches the pack's team folders with the game's teams, and its logos with the teams and competitions; the
+        kits and logos the user confirms wait for Deploy"""
         try:
             kit_pack = pack.open_pack(source)
         except pack.PackError as e:
             QMessageBox.warning(self, APP_NAME, str(e))
             return
-        if not kit_pack.teams:
+        found = logo_pack.find(kit_pack, self.catalog.teams, self.catalog.competitions)
+        if not kit_pack.teams and not found:
             QMessageBox.information(
-                self, APP_NAME, f"No kitserver team folders (with kit folders like p1, g1) found in {source.name}."
+                self,
+                APP_NAME,
+                f"No kitserver team folders (with kit folders like p1, g1) or logos found in {source.name}.",
             )
             return
+        kits_added = self._import_kits(source, kit_pack) if kit_pack.teams else None
+        logos_added = self._import_logos(source, kit_pack, found) if found else None
+        if kits_added is None and logos_added is None:  # every dialog cancelled
+            return
+        self._update_changes()
+        if self.pages.currentWidget() is self.comp_page:
+            self.show_competition(self.comp_id)
+        elif self.team_id is not None:
+            self.show_team(self.team_id)
+        self.statusBar().showMessage(
+            f"{_count(kits_added or 0, logos_added or 0)} from {source.name} waiting for Deploy."
+        )
+
+    def _import_logos(self, source: Path, kit_pack: pack.Pack, found: list) -> int | None:
+        """the logos the user confirms are staged; None if the dialog is cancelled"""
+        dialog = LogoImportDialog(
+            source.name, found, self.catalog.search, self.catalog.search_competitions, kit_pack.read, self
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return None
+        made, failed = logo_pack.logos_of(kit_pack, dialog.chosen(), source.name)
+        for logo in made:
+            self.staging.add_logo(logo.owner, logo.name, logo.slot, logo.files, logo.source)
+        if failed:
+            QMessageBox.warning(self, APP_NAME, "Some logos were not added:\n" + "\n".join(failed[:20]))
+        return len(made)
+
+    def _import_kits(self, source: Path, kit_pack: pack.Pack) -> int | None:
+        """the kits the user confirms are staged; None if the dialog is cancelled"""
         matches = pack.match(kit_pack.teams, self.catalog.teams)
         dialog = ImportDialog(source.name, matches, self.catalog.search, self)
         if dialog.exec() != QDialog.Accepted:
-            return
+            return None
         added, failed = 0, []
         for pack_team, team in dialog.chosen():
             where = pack_team.path or "(the pack itself)"
@@ -393,10 +427,7 @@ class MainWindow(QMainWindow):
                     failed.append(f"{where} {slot}: {e}")
         if failed:
             QMessageBox.warning(self, APP_NAME, "Some kits were not added:\n" + "\n".join(failed[:20]))
-        self._update_changes()
-        if self.team_id is not None:
-            self.show_team(self.team_id)
-        self.statusBar().showMessage(f"{_kits(added)} from {source.name} waiting for Deploy.")
+        return added
 
     def replace_kit(self, slot: str) -> None:
         team = self.catalog.get(self.team_id)
