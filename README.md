@@ -1,7 +1,7 @@
 <a id="readme-top"></a>
 
 <div align="center">
-  <img src="docs/images/logo.svg" alt="FL Kits Manager logo: a striped football shirt on a green pitch disc" width="96" height="96">
+  <img src="docs/images/flkm-logo.svg" alt="FL Kits Manager logo: a striped football shirt on a green pitch disc" width="96" height="96">
   <h1>FL Kits Manager</h1>
   <p><i>Every team, every kit, in one place.</i> ⚽</p>
   <p>
