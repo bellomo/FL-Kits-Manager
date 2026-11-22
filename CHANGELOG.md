@@ -24,5 +24,9 @@ Versions follow semver (`MAJOR.MINOR.PATCH`); the release zip is `FLKitsManager_
   texture in `livecpk\FLKitsManager`, put first in `sider.ini`; `.bak-<date>` copies of `map.txt` and `sider.ini`;
   nothing is written while the game runs.
 - Changes → Undo last deploy: puts back every file the last deploy wrote, one deploy at a time.
+- Changes → Import kit pack (folder or zip): whole kitserver kits (config.txt, texture, numbers and names) from the
+  packs fans share; each team folder is matched with a game team by the pack's map id checked by name, or by name;
+  a dialog shows the matches, ticks the sure ones and lets the user choose the team by id or name. Kits the team did
+  not have show as new cards; a team with kits from the game files gets a kitserver folder with the pack's kits.
 - A bar (and Changes → Re-apply links) when a Mod Studio Build or another tool removed the app's block in `map.txt` or
   its root in `sider.ini`.

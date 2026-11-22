@@ -16,18 +16,12 @@ from PySide6.QtWidgets import (
 
 from flkm import render
 from flkm.catalog import Team
+from flkm.game.kits import slot_name
 
 UNROLLED = 320  # size of an unrolled kit on the page
 TITLE_EXTRA = 6  # the team name is this many points larger than the text
 COLUMNS = {"folded": 2, "unrolled": 3}
 PENDING_COLOUR = "#d9822b"  # kits waiting for Deploy
-_NAMES = {"p1": "Home", "p2": "Away", "p3": "Third", "g1": "Goalkeeper"}
-
-
-def slot_name(slot: str) -> str:
-    if slot in _NAMES:
-        return _NAMES[slot]
-    return f"{'Goalkeeper' if slot[0] == 'g' else 'Kit'} {slot[1:]}"
 
 
 def to_pixmap(img: Image.Image) -> QPixmap:
@@ -44,9 +38,9 @@ def kit_picture(kit, view: str) -> Image.Image:
 
 
 class KitCard(QWidget):
-    """one kit; `pending` = the kit chosen to replace the current one, not deployed yet"""
+    """one kit; `pending` = a kit waiting for Deploy, `added` = a kit the team does not have yet (from a pack)"""
 
-    def __init__(self, kit, view: str, pending: bool = False, parent: QWidget | None = None):
+    def __init__(self, kit, view: str, pending: bool = False, added: bool = False, parent: QWidget | None = None):
         super().__init__(parent)
         self.kit, self.pending = kit, pending
         self.name = QLabel(slot_name(kit.slot) + (" · new" if pending else ""))
@@ -62,7 +56,8 @@ class KitCard(QWidget):
         self.source.setWordWrap(True)
         self.replace_button = QPushButton("Replace…")
         self.replace_button.setToolTip("Choose an .ftex texture to use for this kit (installed by Deploy)")
-        self.discard_button = QPushButton("Keep the current kit")
+        self.replace_button.setVisible(not added)  # a texture needs a kit to go into
+        self.discard_button = QPushButton("Don't add this kit" if added else "Keep the current kit")
         self.discard_button.setVisible(pending)
         buttons = QHBoxLayout()
         buttons.addWidget(self.replace_button)
@@ -142,13 +137,16 @@ class TeamPage(QWidget):
         for card in self.cards:
             card.setParent(None)
             card.deleteLater()
+        have = {k.slot for k in kits}
         self.cards = [KitCard(pending.get(k.slot, k), self.view, k.slot in pending) for k in kits]
+        self.cards += [KitCard(pending[s], self.view, pending=True, added=True) for s in pending if s not in have]
+        self.cards.sort(key=lambda c: (c.kit.slot[0] == "g", int(c.kit.slot[1:])))  # players first, then goalkeepers
         for card in self.cards:
             slot = card.kit.slot
             card.replace_button.clicked.connect(lambda _=False, s=slot: self.replace_requested.emit(s))
             card.discard_button.clicked.connect(lambda _=False, s=slot: self.discard_requested.emit(s))
         self._place()
-        self.empty.setVisible(not kits)
+        self.empty.setVisible(not self.cards)
 
     def _place(self) -> None:
         columns = COLUMNS[self.view]

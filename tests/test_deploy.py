@@ -141,7 +141,7 @@ def test_unknown_game_state_needs_the_users_word(game, home, tmp_path):
 def test_slot_the_kitserver_folder_does_not_have_is_refused(game, home, tmp_path):
     make_game(game)
     s = stage(home, tmp_path, (73947, "Aalborg Boldspilklub", "p3", NEW))
-    with pytest.raises(deploy.DeployError, match="Aalborg Boldspilklub has no p3 kit"):
+    with pytest.raises(deploy.DeployError, match="Aalborg Boldspilklub: the new Third texture needs a kit"):
         run(game, home, s)
     assert not (sider(game) / "content" / "kits" / "FLKitsManager").exists()
 
@@ -212,6 +212,101 @@ def test_status_finds_the_block_lost_after_a_mod_studio_build_and_relink_writes_
     assert deploy.status(game).ok
     deploy.undo(game, home, game_running=lambda: False)  # the relink can be undone too
     assert deploy.status(game).block_lost
+
+
+# --- whole kits from packs -------------------------------------------------------------------------------------------
+
+
+def pack_kit(kit_file, colour=NEW):
+    return {
+        "config.txt": f"KitFile={kit_file}\nShirtColor1=#00ff00\n".encode(),
+        f"{kit_file}.ftex": colour,
+        f"{kit_file}_name.ftex": OLD,
+    }
+
+
+def stage_kits(home, *kits):
+    s = Staging(home / "staging")
+    for team_id, name, slot, kit_file in kits:
+        s.add_kit(team_id, name, slot, pack_kit(kit_file), f"{kit_file}.ftex", "pack.zip: Team")
+    return s
+
+
+def files_in(folder):
+    return sorted(p.name for p in folder.iterdir())
+
+
+def test_a_whole_kit_replaces_the_kit_folder_of_a_kitserver_team(game, home):
+    make_game(game)
+    run(game, home, stage_kits(home, (73947, "Aalborg Boldspilklub", "p2", "aab_away")))
+    assert files_in(app_kit(game, "p2")) == ["aab_away.ftex", "aab_away_name.ftex", "config.txt"]
+    assert app_kit(game, "p2", "aab_away.ftex").read_bytes() == NEW
+    assert b"#00ff00" in app_kit(game, "p2", "config.txt").read_bytes()
+    assert files_in(app_kit(game, "p1")) == ["config.txt", "u73947p1.ftex"]  # the other kits are kept
+    text = (sider(game) / "content" / "kits" / "map.txt").read_text(encoding="utf-8-sig")
+    assert kitmap.app_block(text) == [(73947, "73947 Aalborg Boldspilklub")]
+
+
+def test_a_kit_the_team_did_not_have_is_added_to_its_list(game, home):
+    make_game(game)
+    run(game, home, stage_kits(home, (73947, "Aalborg Boldspilklub", "p3", "aab_third")))
+    assert app_kit(game, "order.ini").read_text(encoding="utf-8") == "p1\np2\np3\n"
+    assert app_kit(game, "gk_order.ini").read_text(encoding="utf-8") == "g1\n"
+    run(game, home, stage_kits(home, (73947, "Aalborg Boldspilklub", "g2", "aab_gk2")))
+    assert app_kit(game, "gk_order.ini").read_text(encoding="utf-8") == "g1\ng2\n"
+
+
+def test_a_kitserver_folder_without_kit_lists_gets_none(game, home):
+    make_game(game)
+    aalborg = sider(game) / "content" / "kits" / "_World" / "1. division" / "Aalborg"
+    (aalborg / "order.ini").unlink()
+    (aalborg / "gk_order.ini").unlink()  # the kitserver takes the kit folders
+    run(game, home, stage_kits(home, (73947, "Aalborg Boldspilklub", "p3", "aab_third")))
+    assert files_in(app_kit(game)) == ["g1", "p1", "p2", "p3"]
+
+
+def test_kits_for_a_team_without_a_kitserver_folder_make_one(game, home):
+    make_game(game)
+    run(game, home, stage_kits(home, (186, "Bologna FC", "g1", "bfc_gk"), (186, "Bologna FC", "p1", "bfc_home")))
+    folder = sider(game) / "content" / "kits" / "FLKitsManager" / "186 Bologna FC"
+    assert files_in(folder) == ["g1", "gk_order.ini", "order.ini", "p1"]
+    assert (folder / "order.ini").read_text(encoding="utf-8") == "p1\n"
+    assert (folder / "gk_order.ini").read_text(encoding="utf-8") == "g1\n"
+    assert (folder / "p1" / "bfc_home.ftex").read_bytes() == NEW
+    text = (sider(game) / "content" / "kits" / "map.txt").read_text(encoding="utf-8-sig")
+    assert kitmap.app_block(text) == [(186, "186 Bologna FC")]
+    assert not (sider(game) / "livecpk" / "FLKitsManager").exists()
+
+
+def test_a_texture_goes_into_the_kit_folder_made_in_the_same_deploy(game, home, tmp_path):
+    make_game(game)
+    s = stage_kits(home, (186, "Bologna FC", "p1", "bfc_home"))
+    src = tmp_path / "gk.ftex"
+    src.write_bytes(NEWER)
+    s.add(186, "Bologna FC", "g1", src)  # the team's game goalkeeper kit is not in the new folder
+    with pytest.raises(deploy.DeployError, match="Bologna FC: the new Goalkeeper texture needs a kit"):
+        run(game, home, s)
+    assert not (sider(game) / "content" / "kits" / "FLKitsManager").exists()
+    s.remove(186, "g1")
+    s.add_kit(186, "Bologna FC", "g1", pack_kit("bfc_gk"), "bfc_gk.ftex", "pack.zip: Team")
+    s.add(186, "Bologna FC", "p1", src)  # replaces the staged p1 kit with a texture: needs the kit folder's p1
+    with pytest.raises(deploy.DeployError, match="Bologna FC: the new Home texture needs a kit"):
+        run(game, home, s)
+
+
+def test_undo_of_whole_kits_puts_everything_back(game, home):
+    make_game(game)
+    run(
+        game,
+        home,
+        stage_kits(home, (73947, "Aalborg Boldspilklub", "p2", "aab_away"), (186, "Bologna FC", "p1", "bfc_home")),
+    )
+    run(game, home, stage_kits(home, (73947, "Aalborg Boldspilklub", "p2", "aab_away2")))
+    deploy.undo(game, home, game_running=lambda: False)
+    assert files_in(app_kit(game, "p2")) == ["aab_away.ftex", "aab_away_name.ftex", "config.txt"]
+    deploy.undo(game, home, game_running=lambda: False)
+    assert not (sider(game) / "content" / "kits" / "FLKitsManager").exists()
+    assert (sider(game) / "content" / "kits" / "map.txt").read_bytes() == b"\xef\xbb\xbf" + MAP.encode()
 
 
 def test_history_lists_deploys_newest_first(game, home, tmp_path):

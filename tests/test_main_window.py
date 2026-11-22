@@ -1,13 +1,16 @@
 """The main window: the team list on the left, the team page on the right. The game folder comes from the command
 line or the settings, else the user chooses it; the chosen folder and the kit view are remembered."""
 
+import zipfile
+
 import pytest
-from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
+from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox
 
 import flkm
 from conftest import build_ftex, dxt5_block, team_record, wesys
 from flkm import deploy, main_window, settings
 from flkm.game import process
+from flkm.import_dialog import ImportDialog
 from flkm.main_window import MainWindow
 
 
@@ -425,6 +428,119 @@ def test_an_error_while_deploying_is_shown(qtbot, game, tmp_path, dialogs, close
     monkeypatch.setattr(deploy, "deploy", broken)
     w.deploy_action.trigger()
     assert dialogs.warnings == ["Deploy failed: access denied"]
+
+
+# --- importing kit packs ---------------------------------------------------------------------------------------------
+
+
+def make_pack(root, colour=NEW):
+    """a pack with Bologna's home and third kits and a club the game does not have"""
+    base = root / "Serie A Kitpack"
+    for team, slots in (("Bologna", ("p1", "p3")), ("Zalgiris", ("p1",))):
+        for slot in slots:
+            folder = base / team / slot
+            folder.mkdir(parents=True)
+            (folder / "config.txt").write_text(f"KitFile=k{slot}\n", encoding="utf-8")
+            (folder / f"k{slot}.ftex").write_bytes(colour)
+    (base / "map.txt").write_text('186, "Bologna"\n', encoding="utf-8")
+    return base
+
+
+@pytest.fixture
+def accept_import(monkeypatch):
+    """the import dialog is accepted as it opens (with its ticked rows)"""
+    seen = []
+
+    def exec_(dialog):
+        seen.append(dialog)
+        return QDialog.Accepted
+
+    monkeypatch.setattr(ImportDialog, "exec", exec_)
+    return seen
+
+
+def test_import_actions_need_a_game(qtbot, game):
+    w = make_window(qtbot)
+    assert not w.import_folder_action.isEnabled() and not w.import_zip_action.isEnabled()
+    w.open_game(kit_game(game))
+    assert w.import_folder_action.isEnabled() and w.import_zip_action.isEnabled()
+
+
+def test_import_a_pack_folder(qtbot, game, tmp_path, dialogs, accept_import, monkeypatch):
+    w = bologna(qtbot, game)
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a: str(make_pack(tmp_path)))
+    w.import_folder_action.trigger()
+    [dialog] = accept_import
+    assert dialog.windowTitle() == "Import kits from Serie A Kitpack"
+    assert [(m.pack_team.name, m.team.id if m.team else None) for m in dialog.matches] == [
+        ("Bologna", 186),
+        ("Zalgiris", None),
+    ]
+    assert [(c.team_id, c.slot, c.kind) for c in w.staging.changes] == [(186, "p1", "kit"), (186, "p3", "kit")]
+    assert [(c.name.text(), c.pending) for c in w.page.cards] == [("Home · new", True), ("Third · new", True)]
+    assert w.page.cards[0].source.text() == "New kit from Serie A Kitpack, not deployed yet"
+    assert w.page.cards[0].source.toolTip() == "Serie A Kitpack: Serie A Kitpack/Bologna"
+    assert w.statusBar().currentMessage() == "2 kits from Serie A Kitpack waiting for Deploy."
+
+
+def test_imported_kits_are_deployed_as_a_kitserver_folder(qtbot, game, tmp_path, dialogs, accept_import, closed_game):
+    w = bologna(qtbot, game)
+    w.import_pack(make_pack(tmp_path))
+    w.deploy_action.trigger()
+    assert dialogs.asked[-1].startswith("Install 2 kits in the game?\n\nBologna FC: Home (whole kit)\n")
+    folder = game / "SiderAddons" / "content" / "kits" / "FLKitsManager" / "186 Bologna FC"
+    assert (folder / "p3" / "kp3.ftex").read_bytes() == NEW
+    assert [c.kit.source for c in w.page.cards] == ["kitserver: FLKitsManager\\186 Bologna FC"] * 2
+
+
+def test_import_with_no_team_open(qtbot, game, tmp_path, dialogs, accept_import):
+    w = make_window(qtbot, game_dir=kit_game(game))
+    w.import_pack(make_pack(tmp_path))
+    assert len(w.staging.changes) == 2 and w.pages.currentWidget() is w.start
+
+
+def test_import_a_zip(qtbot, game, tmp_path, dialogs, accept_import):
+    w = bologna(qtbot, game)
+    base = make_pack(tmp_path / "src")
+    z = tmp_path / "pack.zip"
+    with zipfile.ZipFile(z, "w") as f:
+        for p in base.rglob("*"):
+            f.write(p, p.relative_to(base.parent).as_posix())
+    dialogs.file = str(z)
+    w.import_zip_action.trigger()
+    assert len(w.staging.changes) == 2 and w.staging.changes[0].source == "pack.zip: Serie A Kitpack/Bologna"
+
+
+def test_import_cancelled(qtbot, game, tmp_path, dialogs, accept_import, monkeypatch):
+    w = bologna(qtbot, game)
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *a: "")
+    w.import_folder_action.trigger()
+    w.import_zip_action.trigger()  # dialogs.file is ""
+    assert accept_import == []
+    monkeypatch.setattr(ImportDialog, "exec", lambda d: QDialog.Rejected)
+    w.import_pack(make_pack(tmp_path))
+    assert w.staging.changes == []
+
+
+def test_import_of_something_that_is_not_a_pack(qtbot, game, tmp_path, dialogs, accept_import):
+    w = bologna(qtbot, game)
+    (tmp_path / "empty").mkdir()
+    w.import_pack(tmp_path / "empty")
+    assert dialogs.infos == ["No kitserver team folders (with kit folders like p1, g1) found in empty."]
+    bad = tmp_path / "bad.zip"
+    bad.write_bytes(b"nope")
+    w.import_pack(bad)
+    assert dialogs.warnings[0].startswith(f"{bad} cannot be read as a zip")
+    assert accept_import == []
+
+
+def test_kits_that_cannot_be_added_are_listed(qtbot, game, tmp_path, dialogs, accept_import):
+    w = bologna(qtbot, game)
+    base = make_pack(tmp_path)
+    (base / "Bologna" / "p3" / "kp3.ftex").write_bytes(b"not a texture")
+    w.import_pack(base)
+    assert [c.slot for c in w.staging.changes] == ["p1"]
+    assert dialogs.warnings[0].startswith("Some kits were not added:\nSerie A Kitpack/Bologna p3: ")
 
 
 def test_quit_action_closes_the_window(qtbot):

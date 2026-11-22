@@ -130,6 +130,22 @@ def test_a_kit_waiting_for_deploy_is_shown_instead_of_the_current_one(qtbot):
     assert sig.args == ["p1"]
 
 
+def test_a_new_kit_the_team_did_not_have_gets_its_own_card(qtbot):
+    p = make_page(qtbot)
+    third, gk = FakeKit("p3", "New kit from a pack"), FakeKit("g1", "New kit from a pack")
+    p.show_team(BOLOGNA, [FakeKit("p1")], pending={"g1": gk, "p3": third})
+    assert [(c.name.text(), c.pending) for c in p.cards] == [
+        ("Home", False),
+        ("Third · new", True),
+        ("Goalkeeper · new", True),
+    ]
+    assert p.cards[1].discard_button.text() == "Don't add this kit"
+    assert not p.empty.isVisibleTo(p)
+    with qtbot.waitSignal(p.discard_requested) as sig:
+        p.cards[2].discard_button.click()
+    assert sig.args == ["g1"]
+
+
 def test_showing_another_team_replaces_the_cards(qtbot):
     p = make_page(qtbot)
     p.show_team(BOLOGNA, [FakeKit("p1"), FakeKit("p2")])

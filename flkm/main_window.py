@@ -1,7 +1,7 @@
 """Main window: the team list on the left, the page of the chosen team on the right.
 
-Kits chosen with Replace… wait in the staging area (shown on the team page) until Changes > Deploy installs them;
-Changes > Undo last deploy puts back what the last deploy changed.
+Kits chosen with Replace… (a texture) or Changes > Import kit pack (whole kits) wait in the staging area (shown on
+the team page) until Changes > Deploy installs them; Changes > Undo last deploy puts back what the last deploy changed.
 """
 
 import dataclasses
@@ -12,6 +12,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QFont, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -25,8 +26,9 @@ from PySide6.QtWidgets import (
 )
 
 import flkm
-from flkm import catalog, deploy, settings
+from flkm import catalog, deploy, pack, settings
 from flkm.game import ftex, kits, process
+from flkm.import_dialog import ImportDialog
 from flkm.staging import Staging
 from flkm.team_page import PENDING_COLOUR, TeamPage, slot_name
 from flkm.team_tree import TeamTree
@@ -119,6 +121,12 @@ class MainWindow(QMainWindow):
         for action in (self.larger_text_action, self.smaller_text_action, self.default_text_action):
             view.addAction(action)
         changes = self.menuBar().addMenu("&Changes")
+        self.import_folder_action = QAction("Import kit pack (&folder)…", self, enabled=False)
+        self.import_zip_action = QAction("Import kit pack (&zip)…", self, enabled=False)
+        for action in (self.import_folder_action, self.import_zip_action):
+            action.setStatusTip("Take whole kits from a kit pack (kitserver team folders); they wait for Deploy")
+            changes.addAction(action)
+        changes.addSeparator()
         self.deploy_action = QAction("&Deploy to the game", self, shortcut=QKeySequence("Ctrl+D"))
         self.deploy_action.setStatusTip("Install the kits waiting for Deploy (the game must be closed)")
         self.discard_action = QAction("Dis&card all changes", self)
@@ -139,6 +147,8 @@ class MainWindow(QMainWindow):
         self.game_action.triggered.connect(self.choose_game)
         self.quit_action.triggered.connect(self.close)
         self.reload_action.triggered.connect(self.reload)
+        self.import_folder_action.triggered.connect(self.import_folder)
+        self.import_zip_action.triggered.connect(self.import_zip)
         self.deploy_action.triggered.connect(self.deploy_changes)
         self.discard_action.triggered.connect(self.discard_changes)
         self.undo_action.triggered.connect(self.undo_deploy)
@@ -194,11 +204,14 @@ class MainWindow(QMainWindow):
 
     def show_team(self, team_id: int) -> None:
         staged = self.staging.for_team(team_id)
+
+        def label(c) -> str:
+            if c.kind == "kit":
+                return f"New kit from {c.source.split(': ')[0]}, not deployed yet"  # the pack; its folder: tooltip
+            return f"New kit, not deployed yet: {Path(c.source).name}"
+
         pending = {
-            slot: kits.Kit(
-                team_id, slot, f"New kit, not deployed yet: {Path(c.source).name}", file=self.staging.path(c)
-            )
-            for slot, c in staged.items()
+            slot: kits.Kit(team_id, slot, label(c), file=self.staging.texture_path(c)) for slot, c in staged.items()
         }
         QGuiApplication.setOverrideCursor(Qt.WaitCursor)
         try:
@@ -207,11 +220,55 @@ class MainWindow(QMainWindow):
             QGuiApplication.restoreOverrideCursor()
         for card in self.page.cards:
             if card.pending:
-                card.source.setToolTip(staged[card.kit.slot].source)  # the whole path of the chosen file
+                card.source.setToolTip(staged[card.kit.slot].source)  # the whole path of the chosen file or pack
         self.team_id = team_id
         self.pages.setCurrentWidget(self.page)
 
     # --- changes -----------------------------------------------------------------------------------------------------
+
+    def import_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Folder of a kit pack", "")
+        if folder:
+            self.import_pack(Path(folder))
+
+    def import_zip(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Kit pack", "", "Zip files (*.zip)")
+        if path:
+            self.import_pack(Path(path))
+
+    def import_pack(self, source: Path) -> None:
+        """matches the pack's team folders with the game's teams; the kits the user confirms wait for Deploy"""
+        try:
+            kit_pack = pack.open_pack(source)
+        except pack.PackError as e:
+            QMessageBox.warning(self, APP_NAME, str(e))
+            return
+        if not kit_pack.teams:
+            QMessageBox.information(
+                self, APP_NAME, f"No kitserver team folders (with kit folders like p1, g1) found in {source.name}."
+            )
+            return
+        matches = pack.match(kit_pack.teams, self.catalog.teams)
+        dialog = ImportDialog(source.name, matches, self.catalog.search, self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        added, failed = 0, []
+        for pack_team, team in dialog.chosen():
+            where = pack_team.path or "(the pack itself)"
+            for slot in pack_team.slots:
+                try:
+                    files = kit_pack.kit_files(pack_team, slot)
+                    texture = kit_pack.texture_name(pack_team, slot)
+                    self.staging.add_kit(team.id, team.name, slot, files, texture, f"{source.name}: {where}")
+                    added += 1
+                except (pack.PackError, ftex.FtexError, ValueError, OSError) as e:
+                    failed.append(f"{where} {slot}: {e}")
+        if failed:
+            QMessageBox.warning(self, APP_NAME, "Some kits were not added:\n" + "\n".join(failed[:20]))
+        self._update_changes()
+        if self.team_id is not None:
+            self.show_team(self.team_id)
+        self.statusBar().showMessage(f"{_kits(added)} from {source.name} waiting for Deploy.")
 
     def replace_kit(self, slot: str) -> None:
         team = self.catalog.get(self.team_id)
@@ -238,7 +295,9 @@ class MainWindow(QMainWindow):
 
     def deploy_changes(self) -> None:
         changes = self.staging.changes
-        listing = "\n".join(f"{c.team_name}: {slot_name(c.slot)}" for c in changes)
+        listing = "\n".join(
+            f"{c.team_name}: {slot_name(c.slot)}{' (whole kit)' if c.kind == 'kit' else ''}" for c in changes
+        )
         question = (
             f"Install {_kits(len(changes))} in the game?\n\n{listing}\n\n"
             "The game must be closed. Changes > Undo last deploy puts back the files as they were."
@@ -314,6 +373,8 @@ class MainWindow(QMainWindow):
         self.discard_action.setEnabled(waiting > 0)
         self.undo_action.setEnabled(open_game and bool(deploy.history(settings.home())))
         self.relink_action.setEnabled(open_game)
+        self.import_folder_action.setEnabled(open_game)
+        self.import_zip_action.setEnabled(open_game)
         self.pending_label.setText(f"{_kits(waiting)} waiting for Deploy")
         self.pending_label.setVisible(waiting > 0)
         state = deploy.status(self.game_dir) if open_game else deploy.Status(False, False)

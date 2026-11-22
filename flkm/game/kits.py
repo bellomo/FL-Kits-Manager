@@ -20,6 +20,16 @@ from flkm.game.kitmap import KitMap
 TEXTURES = "Asset/model/character/uniform/texture/#windx11/"
 GAME_SLOTS = ("p1", "p2", "p3", "p4", "p5", "g1", "g2")
 _SLOT = re.compile(r"^[pg]\d+$")
+_NAMES = {"p1": "Home", "p2": "Away", "p3": "Third", "g1": "Goalkeeper"}
+
+
+def slot_name(slot: str) -> str:
+    """Home, Away, Third, Kit 4, ..., Goalkeeper, Goalkeeper 2, ..."""
+    if slot in _NAMES:
+        return _NAMES[slot]
+    return f"{'Goalkeeper' if slot[0] == 'g' else 'Kit'} {slot[1:]}"
+
+
 _KIT_FILE = re.compile(r"^\s*KitFile\s*=\s*(\S+)", re.MULTILINE)
 
 

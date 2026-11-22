@@ -72,6 +72,71 @@ def test_clear(home, tmp_path):
     assert s.changes == [] and not s.path(c).exists() and Staging(home / "staging").changes == []
 
 
+def kit_files(colour=0x001F):
+    return {
+        "config.txt": b"KitFile=u186p1\nShirtColor1=#ff0000\n",
+        "u186p1.ftex": build_ftex(4, 4, 4, [dxt5_block(colour)]),
+        "u186p1_back.ftex": build_ftex(4, 4, 4, [dxt5_block(0)]),
+    }
+
+
+def test_a_whole_kit_from_a_pack(home):
+    s = Staging(home / "staging")
+    c = s.add_kit(186, "Bologna FC", "p1", kit_files(), "u186p1.ftex", "Serie A Kitpack.zip: Serie A Enilive/Bologna")
+    assert (c.kind, c.texture, c.source) == ("kit", "u186p1.ftex", "Serie A Kitpack.zip: Serie A Enilive/Bologna")
+    folder = s.path(c)
+    assert sorted(p.name for p in folder.iterdir()) == ["config.txt", "u186p1.ftex", "u186p1_back.ftex"]
+    assert s.texture_path(c) == folder / "u186p1.ftex"
+    assert Staging(home / "staging").changes == [c]
+
+
+def test_a_texture_change_has_its_texture_as_file(home, tmp_path):
+    s = Staging(home / "staging")
+    c = s.add(186, "Bologna FC", "p1", texture(tmp_path))
+    assert c.kind == "texture" and s.texture_path(c) == s.path(c)
+
+
+def test_a_kit_and_a_texture_for_the_same_kit_replace_each_other(home, tmp_path):
+    s = Staging(home / "staging")
+    kit = s.add_kit(186, "Bologna FC", "p1", kit_files(), "u186p1.ftex", "pack")
+    tex = s.add(186, "Bologna FC", "p1", texture(tmp_path))
+    assert s.changes == [tex] and not s.path(kit).exists()
+    kit = s.add_kit(186, "Bologna FC", "p1", kit_files(), "u186p1.ftex", "pack")
+    assert s.changes == [kit] and not s.path(tex).exists()
+    s.remove(186, "p1")
+    assert s.changes == [] and not s.path(kit).exists()
+
+
+def test_a_kit_whose_texture_is_not_readable_is_refused(home):
+    s = Staging(home / "staging")
+    files = kit_files()
+    files["u186p1.ftex"] = b"oops"
+    with pytest.raises(FtexError):
+        s.add_kit(186, "Bologna FC", "p1", files, "u186p1.ftex", "pack")
+    with pytest.raises(ValueError, match="no u186p9.ftex"):
+        s.add_kit(186, "Bologna FC", "p1", kit_files(), "u186p9.ftex", "pack")
+    assert s.changes == []
+
+
+def test_kit_file_names_must_stay_in_the_kit_folder(home):
+    s = Staging(home / "staging")
+    for bad in ("../x.txt", "a/b.txt", "a\\b.txt", "", ".."):
+        files = kit_files() | {bad: b"x"}
+        with pytest.raises(ValueError, match="file name"):
+            s.add_kit(186, "Bologna FC", "p1", files, "u186p1.ftex", "pack")
+    assert s.changes == []
+
+
+def test_old_staging_files_without_a_kind_are_texture_changes(home):
+    (home / "staging").mkdir(parents=True)
+    old = (
+        '{"changes": [{"team_id": 186, "team_name": "Bologna FC", "slot": "p1", "file": "u186p1.ftex", "source": "x"}]}'
+    )
+    (home / "staging" / "staging.json").write_text(old, encoding="utf-8")
+    [c] = Staging(home / "staging").changes
+    assert (c.kind, c.texture) == ("texture", "")
+
+
 def test_damaged_staging_file_reads_as_empty(home):
     (home / "staging").mkdir(parents=True)
     (home / "staging" / "staging.json").write_text("{oops", encoding="utf-8")

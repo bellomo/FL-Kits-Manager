@@ -47,8 +47,8 @@ A Windows app to manage the kits and logos installed in **SP Football Life 2027*
 
 The app ships no kits and no logos: it reads what is installed in your game and edits it.
 
-> Status: early development: browsing teams and kits, replacing a kit with an `.ftex` texture, Deploy and Undo
-> work; replacing from folders, zips and PNG images comes next. See the [roadmap](#roadmap).
+> Status: early development: browsing teams and kits, importing whole kits from kit packs (folder or zip), replacing
+> a kit's texture with an `.ftex` file, Deploy and Undo work; PNG images come next. See the [roadmap](#roadmap).
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -89,7 +89,17 @@ No Python is needed: the exe contains everything.
 
 ### ✍️ What the app writes
 
-**Replace…** on a kit chooses a new `.ftex` texture for it. The change is not written to the game yet: the kit shows
+**Kit packs.** Fans share kits as kit packs: a folder or a zip with one kitserver folder per team, which has one
+folder per kit (`p1`, `p2`, ... players, `g1`, ... goalkeepers) with `config.txt`, the kit's texture and the textures of
+its numbers and names, often with the `map.txt` lines to copy. Changes → **Import kit pack (folder)…** or **(zip)…**
+reads it and matches each team folder with a game team: by the id of the pack's map lines, checked by name (ids
+change between patches), or by name alone. A dialog shows every team folder; sure matches are ticked, the others say
+why they need checking, and **Choose team…** picks the team by id or name. The ticked teams' kits wait for Deploy,
+each replacing the team's kit of the same kind. A team whose kits come from the game files gets a kitserver folder
+with only the pack's kits. A password-protected zip has to be extracted first, then imported as a folder.
+
+**Replace…** on a kit chooses a new `.ftex` texture for it (only the texture: the kit's settings, numbers and names
+stay). The change is not written to the game yet: the kit shows
 as *new* (in orange) and the status bar counts the kits waiting; **Keep the current kit** or Changes → Discard all
 changes drops them. Changes → **Deploy to the game** (Ctrl+D) installs them:
 
@@ -127,7 +137,7 @@ limits, and warns you when the run could use up what is left. Without Claude, ev
 | M1 | Read the game: sider.ini, kitserver map, CPK, FTEX textures, team catalog by federation, country and league, which kit each team uses |
 | M2 | Team list and team page, kits folded and unrolled |
 | M3 | Staging, deploy, undo |
-| M4 | Replace kits from a folder or a zip (match by id or name) |
+| M4 | Import whole kits from kit packs, folder or zip (match by id and name); PNG images |
 | M5 | Logos: view and replace crests and competition logos |
 | M6 | Kits from photos loaded by the user (end-to-end script) |
 | M7 | Claude: detection, usage estimate and warning, logos from the web |
@@ -159,7 +169,9 @@ Development rules (test-driven, 100% line and branch coverage, no network in tes
 | `flkm/main_window.py` | Main window: game folder, team list, team page, Changes menu (Deploy, Undo, Re-apply) |
 | `flkm/team_tree.py` | Team list: federation > country > league > team, search by name or id |
 | `flkm/team_page.py` | Team page: details and kits, folded or unrolled, Replace… and kits waiting for Deploy |
-| `flkm/staging.py` | Kits chosen to replace the game's, kept until Deploy (`%APPDATA%\FLKitsManager\staging`) |
+| `flkm/import_dialog.py` | Import dialog: the pack's team folders, the game team of each one, Choose team… |
+| `flkm/pack.py` | Kit packs (folder or zip): team folders, their kits, map lines; matching with the game's teams |
+| `flkm/staging.py` | Kits chosen to replace the game's (textures or whole kits), kept until Deploy (`%APPDATA%\FLKitsManager\staging`) |
 | `flkm/deploy.py` | Deploy, Undo, Re-apply links, status of the app's links, deploy history |
 | `flkm/render.py` | Kit pictures from a texture: unrolled, and folded (front and back as in the game) |
 | `flkm/settings.py` | Settings (`%APPDATA%\FLKitsManager\settings.json`): game folder, kit view, text size |

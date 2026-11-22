@@ -113,6 +113,10 @@ class _Journal:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
 
+    def remove(self, path: Path) -> None:
+        self.before_write(path)
+        path.unlink()
+
 
 def _check(game_running: Callable[[], bool | None], unknown_ok: bool) -> None:
     state = game_running()
@@ -154,32 +158,77 @@ def _link(paths: _Paths, journal: _Journal, today: datetime.date) -> None:
         _write_text(journal, paths.ini, new, bom, today)
 
 
+def _kit_folder(paths: _Paths, kit_map: kitmap.KitMap, team_id: int) -> Path | None:
+    """the team's kitserver folder: the app's copy, else the folder map.txt names (if it exists)"""
+    folder = paths.app_folder(team_id)
+    if folder is not None:
+        return folder
+    source = kit_map.path_of(team_id)
+    return source if source is not None and source.is_dir() else None
+
+
+def _list_kit(journal: _Journal, folder: Path, slot: str) -> None:
+    """adds the kit to order.ini (players) or gk_order.ini (goalkeepers) when it is not listed"""
+    path = folder / ("gk_order.ini" if slot.startswith("g") else "order.ini")
+    lines = (
+        [s.strip() for s in path.read_text(encoding="utf-8-sig").splitlines() if s.strip()] if path.is_file() else []
+    )
+    if slot not in lines:
+        journal.write(path, ("\n".join([*lines, slot]) + "\n").encode())
+
+
+def _put_kit(journal: _Journal, folder: Path, staging: Staging, change, listed: bool) -> None:
+    """the kit's folder gets exactly the staged kit's files"""
+    slot_dir = folder / change.slot
+    if slot_dir.is_dir():
+        for f in sorted(p for p in slot_dir.iterdir() if p.is_file()):
+            journal.remove(f)
+    for f in sorted(staging.path(change).iterdir()):
+        journal.write(slot_dir / f.name, f.read_bytes())
+    if listed:
+        _list_kit(journal, folder, change.slot)
+
+
 def _install(paths: _Paths, journal: _Journal, staging: Staging) -> None:
-    """writes the staged textures (_check_slots has made sure every kitserver slot exists)"""
+    """writes the staged kits, whole kits first (a texture may go into a kit folder they make); _check_slots has made
+    sure that every texture for a kitserver team has a kit to go into"""
     kit_map = kitmap.load(paths.map)
-    for change in staging.changes:
-        data = staging.path(change).read_bytes()
+    made: set[Path] = set()  # kit folders this deploy makes from nothing (it keeps their kit lists)
+    for change in sorted(staging.changes, key=lambda c: c.kind != "kit"):
         folder = paths.app_folder(change.team_id)
-        source = kit_map.path_of(change.team_id)
-        if folder is None and source is not None and source.is_dir():
-            folder = paths.app_kits / f"{change.team_id} {_safe(change.team_name)}"
-            for f in sorted(p for p in source.rglob("*") if p.is_file()):
-                journal.write(folder / f.relative_to(source), f.read_bytes())
         if folder is None:
+            source = _kit_folder(paths, kit_map, change.team_id)
+            if source is not None or change.kind == "kit":
+                folder = paths.app_kits / f"{change.team_id} {_safe(change.team_name)}"
+                for f in sorted(p for p in source.rglob("*") if p.is_file()) if source else []:
+                    journal.write(folder / f.relative_to(source), f.read_bytes())
+                if source is None:
+                    made.add(folder)
+        if folder is None:
+            data = staging.path(change).read_bytes()
             journal.write(paths.app_root / kits.TEXTURES / f"u{change.team_id:04d}{change.slot}.ftex", data)
-            continue
-        kit = next(k for k in kits.folder_kits(change.team_id, folder, "") if k.slot == change.slot)
-        journal.write(kit.file, data)
+        elif change.kind == "kit":
+            listed = folder in made or any((folder / n).is_file() for n in ("order.ini", "gk_order.ini"))
+            _put_kit(journal, folder, staging, change, listed)
+        else:
+            kit = next(k for k in kits.folder_kits(change.team_id, folder, "") if k.slot == change.slot)
+            journal.write(kit.file, staging.path(change).read_bytes())
 
 
 def _check_slots(paths: _Paths, staging: Staging) -> None:
-    """refuses before writing anything when a staged slot does not exist in the team's kitserver folder"""
+    """refuses, before anything is written, a texture for a kit that the team's kitserver folder will not have"""
     kit_map = kitmap.load(paths.map)
-    for change in staging.changes:
-        folder = paths.app_folder(change.team_id) or kit_map.path_of(change.team_id)
-        if folder is not None and folder.is_dir():
-            if change.slot not in {k.slot for k in kits.folder_kits(change.team_id, folder, "")}:
-                raise DeployError(f"{change.team_name} has no {change.slot} kit in its kitserver folder.")
+    for change in (c for c in staging.changes if c.kind != "kit"):
+        folder = _kit_folder(paths, kit_map, change.team_id)
+        new_kits = any(c.kind == "kit" for c in staging.changes if c.team_id == change.team_id)
+        if folder is None and not new_kits:
+            continue  # kits from the game files: the texture goes to the app's livecpk root
+        have = {k.slot for k in kits.folder_kits(change.team_id, folder, "")} if folder else set()
+        if change.slot not in have:
+            raise DeployError(
+                f"{change.team_name}: the new {kits.slot_name(change.slot)} texture needs a kit to go into, and the "
+                f"team's kitserver folder has no {change.slot} kit. Import a whole kit for it from a pack instead."
+            )
 
 
 def _new_id() -> str:
@@ -281,6 +330,7 @@ def undo(
     for entry in reversed(manifest["files"]):
         target = paths.sider / entry["path"]
         if entry["existed"]:
+            target.parent.mkdir(parents=True, exist_ok=True)  # an emptied kit folder may have been removed
             shutil.copy2(folder / "before" / entry["path"], target)
         else:
             target.unlink(missing_ok=True)
