@@ -6,12 +6,14 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 VIEWS = ("folded", "unrolled")
+FONT_SIZES = tuple(range(8, 29))  # text sizes the user can choose, in points
 
 
 @dataclass(frozen=True)
 class Settings:
     game_dir: str | None = None
     view: str = "folded"  # how kits are shown: folded (as in the game) or unrolled (the texture)
+    font_size: int | None = None  # text size in points; None = the system's
 
 
 def home() -> Path:
@@ -32,10 +34,12 @@ def load() -> Settings:
         return Settings()
     if not isinstance(data, dict):
         return Settings()
-    game_dir, view = data.get("game_dir"), data.get("view", "folded")
+    game_dir, view, font_size = data.get("game_dir"), data.get("view", "folded"), data.get("font_size")
     if not (game_dir is None or isinstance(game_dir, str)) or view not in VIEWS:
         return Settings()
-    return Settings(game_dir=game_dir, view=view)
+    if font_size is not None and (isinstance(font_size, bool) or font_size not in FONT_SIZES):
+        return Settings()
+    return Settings(game_dir=game_dir, view=view, font_size=font_size)
 
 
 def save(s: Settings) -> None:

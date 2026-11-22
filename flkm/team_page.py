@@ -1,7 +1,7 @@
 """The team page: the team's name and details, and its kits folded or unrolled."""
 
 from PIL import Image
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QFont, QImage, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -18,6 +18,7 @@ from flkm import render
 from flkm.catalog import Team
 
 UNROLLED = 320  # size of an unrolled kit on the page
+TITLE_EXTRA = 6  # the team name is this many points larger than the text
 COLUMNS = {"folded": 2, "unrolled": 3}
 _NAMES = {"p1": "Home", "p2": "Away", "p3": "Third", "g1": "Goalkeeper"}
 
@@ -73,10 +74,7 @@ class TeamPage(QWidget):
         self.view = view
         self.cards: list[KitCard] = []
         self.title = QLabel()
-        big = QFont()
-        big.setPointSize(16)
-        big.setBold(True)
-        self.title.setFont(big)
+        self._title_font()
         self.details = QLabel()
         self.details.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.folded_button = QPushButton("Folded", checkable=True)
@@ -105,6 +103,17 @@ class TeamPage(QWidget):
         layout.addLayout(header)
         layout.addWidget(self.empty)
         layout.addWidget(scroll, 1)
+
+    def _title_font(self) -> None:
+        big = QFont(self.font())
+        big.setPointSize(self.font().pointSize() + TITLE_EXTRA)
+        big.setBold(True)
+        self.title.setFont(big)
+
+    def changeEvent(self, event: QEvent) -> None:  # noqa: N802 (Qt name)
+        if event.type() == QEvent.FontChange:  # the user changed the text size
+            self._title_font()
+        super().changeEvent(event)
 
     def show_team(self, team: Team, kits: list) -> None:
         self.title.setText(team.name)

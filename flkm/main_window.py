@@ -4,8 +4,9 @@ import dataclasses
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QGuiApplication
+from PySide6.QtGui import QAction, QFont, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QLabel,
     QMainWindow,
@@ -23,6 +24,20 @@ from flkm.team_page import TeamPage
 from flkm.team_tree import TeamTree
 
 APP_NAME = "FL Kits Manager"
+_SYSTEM_FONT: list[QFont] = []  # the application font before the user changed the text size
+
+
+def _system_font() -> QFont:
+    if not _SYSTEM_FONT:
+        _SYSTEM_FONT.append(QFont(QApplication.font()))
+    return _SYSTEM_FONT[0]
+
+
+def _apply_text_size(size: int | None) -> None:
+    font = QFont(_system_font())
+    if size is not None:
+        font.setPointSize(size)
+    QApplication.setFont(font)
 
 
 class MainWindow(QMainWindow):
@@ -59,6 +74,16 @@ class MainWindow(QMainWindow):
         menu.addAction(self.game_action)
         menu.addSeparator()
         menu.addAction(self.quit_action)
+        view = self.menuBar().addMenu("&View")
+        self.larger_text_action = QAction("&Larger text", self, shortcuts=[QKeySequence("Ctrl++"), "Ctrl+="])
+        self.smaller_text_action = QAction("&Smaller text", self, shortcut=QKeySequence("Ctrl+-"))
+        self.default_text_action = QAction("&Default text size", self, shortcut=QKeySequence("Ctrl+0"))
+        for action in (self.larger_text_action, self.smaller_text_action, self.default_text_action):
+            view.addAction(action)
+        self.larger_text_action.triggered.connect(lambda: self._step_text(+1))
+        self.smaller_text_action.triggered.connect(lambda: self._step_text(-1))
+        self.default_text_action.triggered.connect(lambda: self.set_text_size(None))
+        _apply_text_size(self.settings.font_size)
 
         self.choose_button.clicked.connect(self.choose_game)
         self.game_action.triggered.connect(self.choose_game)
@@ -103,6 +128,16 @@ class MainWindow(QMainWindow):
         finally:
             QGuiApplication.restoreOverrideCursor()
         self.pages.setCurrentWidget(self.page)
+
+    def set_text_size(self, size: int | None) -> None:
+        """text size in points for the whole app; None = the system's"""
+        _apply_text_size(size)
+        self._save(font_size=size)
+
+    def _step_text(self, step: int) -> None:
+        current = self.settings.font_size or _system_font().pointSize()
+        sizes = settings.FONT_SIZES
+        self.set_text_size(max(sizes[0], min(sizes[-1], current + step)))
 
     def _view_changed(self, view: str) -> None:
         self._save(view=view)

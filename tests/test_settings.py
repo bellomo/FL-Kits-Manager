@@ -44,6 +44,19 @@ def test_damaged_or_unknown_settings_give_the_defaults(home):
     assert settings.load() == settings.Settings()
 
 
+def test_text_size_is_remembered():
+    assert settings.Settings().font_size is None  # the system's size
+    settings.save(settings.Settings(font_size=14))
+    assert settings.load().font_size == 14
+
+
+def test_text_size_out_of_range_gives_the_defaults(home):
+    home.mkdir()
+    for bad in ('"big"', "3", "100", "true"):
+        (home / "settings.json").write_text(f'{{"font_size": {bad}}}', encoding="utf-8")
+        assert settings.load() == settings.Settings()
+
+
 def test_a_game_folder_has_sider(game, tmp_path):
     assert not settings.is_game_dir(tmp_path / "nowhere")
     assert not settings.is_game_dir(game)

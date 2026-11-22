@@ -1,7 +1,8 @@
 """The main window: the team list on the left, the team page on the right. The game folder comes from the command
 line or the settings, else the user chooses it; the chosen folder and the kit view are remembered."""
 
-from PySide6.QtWidgets import QFileDialog, QMessageBox
+import pytest
+from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 import flkm
 from conftest import team_record, wesys
@@ -92,6 +93,59 @@ def test_kit_view_is_remembered(qtbot, game):
     w.page.unrolled_button.click()
     assert settings.load().view == "unrolled"
     assert make_window(qtbot).page.view == "unrolled"
+
+
+@pytest.fixture
+def app_font(qapp):
+    """the application font as it was: changing the text size must not leak into other tests"""
+    original = QApplication.font()
+    yield original
+    QApplication.setFont(original)
+
+
+def test_larger_and_smaller_text(qtbot, app_font):
+    w = make_window(qtbot)
+    start = QApplication.font().pointSize()
+    w.larger_text_action.trigger()
+    w.larger_text_action.trigger()
+    assert QApplication.font().pointSize() == start + 2
+    assert settings.load().font_size == start + 2
+    w.smaller_text_action.trigger()
+    assert QApplication.font().pointSize() == start + 1
+    assert settings.load().font_size == start + 1
+
+
+def test_default_text_size(qtbot, app_font):
+    w = make_window(qtbot)
+    start = QApplication.font().pointSize()
+    w.larger_text_action.trigger()
+    w.default_text_action.trigger()
+    assert QApplication.font().pointSize() == start
+    assert settings.load().font_size is None
+
+
+def test_text_size_has_limits(qtbot, app_font):
+    settings.save(settings.Settings(font_size=settings.FONT_SIZES[-1]))
+    w = make_window(qtbot)
+    w.larger_text_action.trigger()
+    assert QApplication.font().pointSize() == settings.FONT_SIZES[-1]
+    settings.save(settings.Settings(font_size=settings.FONT_SIZES[0]))
+    w = make_window(qtbot)
+    w.smaller_text_action.trigger()
+    assert QApplication.font().pointSize() == settings.FONT_SIZES[0]
+
+
+def test_remembered_text_size_is_used_at_start(qtbot, app_font):
+    settings.save(settings.Settings(font_size=17))
+    make_window(qtbot)
+    assert QApplication.font().pointSize() == 17
+
+
+def test_text_size_shortcuts(qtbot, app_font):
+    w = make_window(qtbot)
+    assert w.larger_text_action.shortcut().toString() == "Ctrl++"
+    assert w.smaller_text_action.shortcut().toString() == "Ctrl+-"
+    assert w.default_text_action.shortcut().toString() == "Ctrl+0"
 
 
 def test_quit_action_closes_the_window(qtbot):

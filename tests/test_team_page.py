@@ -4,11 +4,12 @@ folded or unrolled; a kit that cannot be read says so instead of a picture."""
 from dataclasses import dataclass
 
 from PIL import Image
+from PySide6.QtGui import QFont
 
 from flkm import render
 from flkm.catalog import Team
 from flkm.game.ftex import FtexError
-from flkm.team_page import TeamPage, slot_name
+from flkm.team_page import TITLE_EXTRA, TeamPage, slot_name
 
 BOLOGNA = Team(186, "Bologna FC", "BOL", "Italy D1", "Italy", "UEFA")
 
@@ -95,6 +96,14 @@ def test_a_kit_that_cannot_be_read_says_so(qtbot):
     p = make_page(qtbot)
     p.show_team(BOLOGNA, [FakeKit("p1", broken=True)])
     assert p.cards[0].picture.text() == "Cannot read this kit: damaged texture"
+
+
+def test_team_name_stays_larger_than_the_text_when_the_text_size_changes(qtbot):
+    p = make_page(qtbot)
+    font = QFont(p.font())
+    font.setPointSize(20)
+    p.setFont(font)
+    assert p.title.font().pointSize() == 20 + TITLE_EXTRA and p.title.font().bold()
 
 
 def test_showing_another_team_replaces_the_cards(qtbot):

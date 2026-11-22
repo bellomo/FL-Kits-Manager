@@ -76,6 +76,7 @@ No Python is needed: the exe contains everything.
    "More info" → "Run anyway".
 4. Choose the game folder (the one with `SiderAddons`); the app remembers it. `FLKitsManager.exe --game <folder>`
    opens a folder directly.
+5. View → Larger text / Smaller text (Ctrl++ / Ctrl+-) changes the text size; Ctrl+0 goes back to the system's.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -147,7 +148,7 @@ Development rules (test-driven, 100% line and branch coverage, no network in tes
 | `flkm/team_tree.py` | Team list: federation > country > league > team, search by name or id |
 | `flkm/team_page.py` | Team page: details and kits, folded or unrolled |
 | `flkm/render.py` | Kit pictures from a texture: unrolled, and folded (front and back as in the game) |
-| `flkm/settings.py` | Settings (`%APPDATA%\FLKitsManager\settings.json`): game folder, kit view |
+| `flkm/settings.py` | Settings (`%APPDATA%\FLKitsManager\settings.json`): game folder, kit view, text size |
 | `flkm/__main__.py` | `python -m flkm` and the PyInstaller entry point |
 | `flkm/catalog.py` | Team catalog of the installed game: teams by federation, country and league, search, kits of a team |
 | `flkm/game/sider_ini.py` | sider.ini: livecpk roots in priority order, Lua modules, Mod Studio world |
