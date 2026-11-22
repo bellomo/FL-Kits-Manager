@@ -148,9 +148,16 @@ Development rules (test-driven, 100% line and branch coverage, no network in tes
 
 ### 📦 Build and release
 
-GitHub Actions runs the tests on every push and pull request and builds the exe (PyInstaller, one folder) on every
-push to `main`; the zip is attached to the run. Pushing a tag `vX.Y.Z` that matches the version publishes
-`FLKitsManager_vX.Y.Z.zip` as a release. Local build:
+GitHub Actions runs the tests on every push and pull request. The exe (PyInstaller, one folder) is built only for a
+release, on the commit we choose: set the version (`flkm/__init__.py`, `pyproject.toml`, `CHANGELOG.md`), then tag
+that commit and push the tag; the workflow publishes `FLKitsManager_vX.Y.Z.zip` as a release:
+
+```powershell
+git tag v0.1.0 <commit>
+git push origin v0.1.0
+```
+
+Local build:
 
 ```powershell
 .\.venv\Scripts\pyinstaller --noconfirm --clean --windowed --onedir --name FLKitsManager --paths . flkm/__main__.py

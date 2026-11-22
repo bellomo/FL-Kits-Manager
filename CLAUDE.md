@@ -40,8 +40,9 @@
 ## Versions and releases
 
 - Semver `MAJOR.MINOR.PATCH`, the same in `flkm/__init__.py`, `pyproject.toml` and the top entry of `CHANGELOG.md`
-  (`tests/test_rule_version.py`). A tag `vX.Y.Z` pushed to GitHub builds the exe and publishes
-  `FLKitsManager_vX.Y.Z.zip` as a release (`.github/workflows/build.yml`).
+  (`tests/test_rule_version.py`). Pushes only run the tests; the exe is built only when the user decides a release:
+  a tag `vX.Y.Z` pushed on the chosen commit builds it and publishes `FLKitsManager_vX.Y.Z.zip`
+  (`.github/workflows/build.yml`). Never tag or push a tag without the user's go-ahead.
 
 ## README
 

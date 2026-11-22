@@ -1,5 +1,6 @@
-# Tests on every push and pull request; the Windows exe (PyInstaller, one folder) on every push to main and on tags.
-# A tag vX.Y.Z must match the version of flkm/__init__.py: it publishes FLKitsManager_vX.Y.Z.zip as a GitHub Release.
+# Tests on every push and pull request (free on public repositories). The Windows exe (PyInstaller, one folder) is
+# built only for a release: a tag vX.Y.Z pushed on the commit we choose. The tag must match the version of
+# flkm/__init__.py; it publishes FLKitsManager_vX.Y.Z.zip as a GitHub Release.
 name: build
 
 on:
@@ -29,7 +30,7 @@ jobs:
 
   exe:
     needs: test
-    if: github.event_name == 'push'
+    if: github.ref_type == 'tag'
     runs-on: windows-latest
     permissions:
       contents: write
@@ -48,7 +49,7 @@ jobs:
         shell: pwsh
         run: |
           $v = python -c "import flkm; print(flkm.__version__)"
-          if ("${{ github.ref_type }}" -eq "tag" -and "${{ github.ref_name }}" -ne "v$v") {
+          if ("${{ github.ref_name }}" -ne "v$v") {
             throw "tag ${{ github.ref_name }} does not match version $v"
           }
           "value=$v" >> $env:GITHUB_OUTPUT
@@ -69,7 +70,6 @@ jobs:
           name: FLKitsManager_v${{ steps.version.outputs.value }}
           path: FLKitsManager_v${{ steps.version.outputs.value }}.zip
       - name: Release
-        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create ${{ github.ref_name }} FLKitsManager_v${{ steps.version.outputs.value }}.zip --title "FL Kits Manager ${{ github.ref_name }}" --notes-file CHANGELOG.md

@@ -5,4 +5,4 @@ Versions follow semver (`MAJOR.MINOR.PATCH`); the release zip is `FLKitsManager_
 ## 0.1.0
 
 - Project skeleton: empty main window, `--smoke-test`, tests with 100% line and branch coverage, ruff, Windows exe
-  built by GitHub Actions (PyInstaller, one folder).
+  built by GitHub Actions for tagged releases (PyInstaller, one folder); pushes run the tests only.
