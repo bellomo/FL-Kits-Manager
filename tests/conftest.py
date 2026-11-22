@@ -3,6 +3,7 @@ real game, never the user's settings)."""
 
 import os
 import socket
+import struct
 
 import pytest
 
@@ -54,6 +55,91 @@ def home(tmp_path, monkeypatch):
     h = tmp_path / "flkm_home"
     monkeypatch.setenv("FLKM_HOME", str(h))
     return h
+
+
+_UTF_FORMATS = {0: ">B", 1: ">b", 2: ">H", 3: ">h", 4: ">I", 5: ">i", 6: ">Q", 7: ">q", 8: ">f"}
+_UTF_SIZES = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 8, 7: 8, 8: 4, 0xA: 4, 0xB: 8}
+
+
+def utf_table(name: str, columns: list[tuple[str, int]], rows: list[dict], constants: dict | None = None) -> bytes:
+    """A CRI @UTF table (big endian). columns: (name, type), types 0-8 numbers (u8, s8, u16, s16, u32, s32, u64,
+    s64, float), 0xA string, 0xB bytes; every column is stored per row (0x50) unless it is in `constants` (0x30)."""
+    constants = constants or {}
+    strings = bytearray(b"<NULL>\0")
+    blobs = bytearray()
+    offsets = {}
+
+    def s(text):
+        if text not in offsets:
+            offsets[text] = len(strings)
+            strings.extend(text.encode() + b"\0")
+        return offsets[text]
+
+    def value(t, v):
+        if t in _UTF_FORMATS:
+            return struct.pack(_UTF_FORMATS[t], v)
+        if t == 0xB:
+            blobs.extend(v)
+            return struct.pack(">II", len(blobs) - len(v), len(v))
+        return struct.pack(">I", s(v))  # 0xA
+
+    name_off = s(name)
+    schema = bytearray()
+    for col, t in columns:
+        if col in constants:
+            schema += struct.pack(">BI", 0x30 | t, s(col)) + value(t, constants[col])
+        else:
+            schema += struct.pack(">BI", 0x50 | t, s(col))
+    row_cols = [(c, t) for c, t in columns if c not in constants]
+    body = b"".join(b"".join(value(t, row[c]) for c, t in row_cols) for row in rows)
+    rowlen = sum(_UTF_SIZES[t] for _, t in row_cols)
+    rows_off = 24 + len(schema)
+    str_off = rows_off + len(body)
+    data_off = str_off + len(strings)
+    head = struct.pack(">HHIIIHHI", 1, rows_off, str_off, data_off, name_off, len(columns), rowlen, len(rows))
+    table = head + schema + body + bytes(strings) + bytes(blobs)
+    return b"@UTF" + struct.pack(">I", len(table)) + table
+
+
+def build_cpk(files: dict[str, bytes], toc: bool = True) -> bytes:
+    """A tiny CRI CPK with the given files (path -> data), laid out like the game's: header, TOC, then contents."""
+    header_cols = [("TocOffset", 6), ("ContentOffset", 6)]
+    toc_cols = [("DirName", 0xA), ("FileName", 0xA), ("FileSize", 4), ("ExtractSize", 4), ("FileOffset", 6)]
+
+    def chunk(magic, table):
+        return magic + b"\xff\0\0\0" + struct.pack("<Q", len(table)) + table
+
+    header_len = len(chunk(b"CPK ", utf_table("CpkHeader", header_cols, [{"TocOffset": 0, "ContentOffset": 0}])))
+    toc_off = 0x800 if toc else 0
+    rows, blobs, pos = [], b"", 0
+    for path, data in files.items():
+        d, _, f = path.rpartition("/")
+        rows.append({"DirName": d, "FileName": f, "FileSize": len(data), "ExtractSize": len(data), "FileOffset": pos})
+        blobs += data
+        pos += len(data)
+    toc_chunk = chunk(b"TOC ", utf_table("CpkTocInfo", toc_cols, rows))
+    content_off = toc_off + len(toc_chunk) if toc else 0
+    # file offsets are relative to min(content, toc) = toc: shift them past the TOC
+    for r in rows:
+        r["FileOffset"] += len(toc_chunk)
+    toc_chunk = chunk(b"TOC ", utf_table("CpkTocInfo", toc_cols, rows))
+    header = chunk(b"CPK ", utf_table("CpkHeader", header_cols, [{"TocOffset": toc_off, "ContentOffset": content_off}]))
+    assert len(header) == header_len < 0x800
+    if not toc:
+        return header
+    return header.ljust(toc_off, b"\0") + toc_chunk + blobs
+
+
+@pytest.fixture
+def make_cpk(tmp_path):
+    """write a tiny CPK: make_cpk("name.cpk", {"dir/file": b"data"}) -> path"""
+
+    def make(name, files, toc=True):
+        p = tmp_path / name
+        p.write_bytes(build_cpk(files, toc=toc))
+        return p
+
+    return make
 
 
 @pytest.fixture
