@@ -61,6 +61,10 @@ def test_team_with_a_kitserver_folder_uses_its_slots(game, make_cpk):
     assert [k.slot for k in found] == ["p1", "p2", "p3", "g1"]
     assert found[0].source == "kitserver: _World\\1. division\\Aalborg"
     assert found[0].texture().width == 4
+    assert (found[0].folder, found[0].file_name) == (
+        kits_dir / "_World" / "1. division" / "Aalborg" / "p1",
+        "u73947p1.ftex",
+    )
 
 
 def test_kit_file_name_comes_from_config_txt(game, make_cpk):
@@ -108,6 +112,7 @@ def test_team_without_kitserver_folder_uses_the_game_files(game, make_cpk):
     assert [k.slot for k in found] == ["p1", "p2", "p3", "g1"]
     assert all(k.source == "Data\\dt34_g4.cpk" for k in found)
     assert found[3].texture().width == 4
+    assert (found[0].folder, found[0].file_name) == (game / "Data", "dt34_g4.cpk › u0186p1.ftex")  # inside the CPK
 
 
 def test_game_kit_in_a_livecpk_root_wins(game, make_cpk):
@@ -118,6 +123,7 @@ def test_game_kit_in_a_livecpk_root_wins(game, make_cpk):
     found = kits.team_kits(186, km, gf)
     assert found[0].source == "livecpk\\_World"
     assert found[0].preview().getpixel((0, 0)) == (0, 0, 255, 255)
+    assert (found[0].folder, found[0].file_name) == (loose, "u0186p1.ftex")
 
 
 def test_team_ids_of_five_digits_keep_all_digits(game, make_cpk):

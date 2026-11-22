@@ -41,6 +41,18 @@ class Kit:
     file: Path | None = None  # kitserver texture
     found: Found | None = None  # game texture
 
+    @property
+    def folder(self) -> Path:
+        """the folder of the texture file, or of the CPK that holds it"""
+        loose = self.file or self.found.file
+        return loose.parent if loose else self.found.archive.path.parent
+
+    @property
+    def file_name(self) -> str:
+        """the texture's file name in its folder ("<cpk> › <texture>" for a texture in a CPK)"""
+        loose = self.file or self.found.file
+        return loose.name if loose else f"{self.found.archive.path.name} › {self.found.path.rsplit('/', 1)[-1]}"
+
     def texture(self) -> ftex.Ftex:
         return ftex.parse(self.file.read_bytes() if self.file else self.found.read())
 

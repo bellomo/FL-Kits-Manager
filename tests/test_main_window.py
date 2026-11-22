@@ -355,7 +355,7 @@ def test_deploy_installs_the_kits_and_reads_the_game_again(qtbot, game, tmp_path
     assert app_texture(game).read_bytes() == NEW
     assert w.staging.changes == [] and not w.deploy_action.isEnabled() and w.undo_action.isEnabled()
     card = w.page.cards[0]
-    assert not card.pending and "FLKitsManager" in card.source.text()  # the page shows the installed kit
+    assert not card.pending and "FLKitsManager" in w.page.folder_label.text()  # the page shows the installed kit
     assert w.statusBar().currentMessage() == "Deployed 1 kit. Restart the game to see it."
 
 
@@ -411,7 +411,7 @@ def test_undo_last_deploy(qtbot, game, tmp_path, dialogs, closed_game):
     w.undo_action.trigger()
     assert dialogs.asked[-1] == "Undo the last deploy (1 kit)? The files it changed are put back as they were."
     assert not app_texture(game).exists() and not w.undo_action.isEnabled()
-    assert "_World" in w.page.cards[0].source.text()
+    assert "_World" in w.page.folder_label.text()
     assert w.statusBar().currentMessage() == "Last deploy undone. Restart the game to see the change."
 
 

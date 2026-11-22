@@ -1,10 +1,12 @@
-"""The team page: name and details of the team, then one card per kit (slot name, picture, where the kit comes from),
-folded or unrolled; a kit that cannot be read says so instead of a picture."""
+"""The team page: name and details of the team, the folder of its kits (once, with Open folder), then one card per kit
+(slot name, picture, file name in that folder), folded or unrolled; a kit that cannot be read says so instead of a
+picture."""
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from PIL import Image
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QDesktopServices, QFont
 
 from flkm import render
 from flkm.catalog import Team
@@ -14,11 +16,20 @@ from flkm.team_page import TITLE_EXTRA, TeamPage, slot_name
 BOLOGNA = Team(186, "Bologna FC", "BOL", "Italy D1", "Italy", "UEFA")
 
 
+TEAM = Path("C:/FL/SiderAddons/content/kits/Serie A/Bologna")
+
+
 @dataclass
 class FakeKit:
     slot: str
-    source: str = "Data\\dt34_g4.cpk"
+    source: str = "kitserver: Serie A\\Bologna"
     broken: bool = False
+    folder: Path | None = None
+    file_name: str = ""
+
+    def __post_init__(self):
+        self.folder = self.folder or TEAM / self.slot
+        self.file_name = self.file_name or f"u186{self.slot}.ftex"
 
     def picture(self, size):
         self.asked = size
@@ -60,16 +71,56 @@ def test_missing_details_are_left_out(qtbot):
 
 def test_one_card_per_kit_folded(qtbot):
     p = make_page(qtbot)
-    kits = [FakeKit("p1"), FakeKit("p2", "kitserver: _World\\Bologna")]
+    kits = [FakeKit("p1"), FakeKit("p2")]
     p.show_team(BOLOGNA, kits)
     assert not p.empty.isVisibleTo(p)
     assert [(c.name.text(), c.source.text()) for c in p.cards] == [
-        ("Home", "Data\\dt34_g4.cpk"),
-        ("Away", "kitserver: _World\\Bologna"),
+        ("Home", "p1\\u186p1.ftex"),
+        ("Away", "p2\\u186p2.ftex"),
     ]
     pix = p.cards[0].picture.pixmap()
     assert (pix.width(), pix.height()) == (render.VIEW_W, render.VIEW_H // 2)  # front and back, half size
     assert kits[0].asked == 1024
+
+
+def test_the_folder_of_the_kits_is_shown_once_above_them(qtbot):
+    p = make_page(qtbot)
+    p.show_team(BOLOGNA, [FakeKit("p1"), FakeKit("g1")])
+    assert p.folder_row.isVisibleTo(p) and p.folder_label.text() == str(TEAM)
+    assert p.cards[1].source.toolTip() == str(TEAM / "g1" / "u186g1.ftex")
+
+
+def test_kits_in_one_folder_show_only_their_file_names(qtbot):
+    p = make_page(qtbot)
+    data = Path("C:/FL/Data")
+    cpk = [FakeKit(s, "Data\\dt34_g4.cpk", folder=data, file_name=f"dt34_g4.cpk › u0186{s}.ftex") for s in ("p1", "p2")]
+    p.show_team(BOLOGNA, cpk)
+    assert p.folder_label.text() == str(data)
+    assert [c.source.text() for c in p.cards] == ["dt34_g4.cpk › u0186p1.ftex", "dt34_g4.cpk › u0186p2.ftex"]
+
+
+def test_kits_on_different_drives_show_their_whole_path(qtbot):
+    p = make_page(qtbot)
+    p.show_team(BOLOGNA, [FakeKit("p1"), FakeKit("p2", folder=Path("D:/kits"))])
+    assert not p.folder_row.isVisibleTo(p)
+    assert [c.source.text() for c in p.cards] == [str(TEAM / "p1" / "u186p1.ftex"), str(Path("D:/kits/u186p2.ftex"))]
+
+
+def test_open_folder_opens_the_kits_folder(qtbot, monkeypatch):
+    opened = []
+    monkeypatch.setattr(QDesktopServices, "openUrl", lambda url: opened.append(url.toLocalFile()))
+    p = make_page(qtbot)
+    p.show_team(BOLOGNA, [FakeKit("p1")])
+    p.open_folder_button.click()
+    assert [Path(u) for u in opened] == [TEAM / "p1"]
+
+
+def test_no_folder_row_without_kits_of_the_game(qtbot):
+    p = make_page(qtbot)
+    p.show_team(BOLOGNA, [])
+    assert not p.folder_row.isVisibleTo(p)
+    p.show_team(BOLOGNA, [], pending={"p1": FakeKit("p1", "New kit from a pack")})  # only kits waiting for Deploy
+    assert not p.folder_row.isVisibleTo(p) and p.cards[0].source.text() == "New kit from a pack"
 
 
 def test_unrolled_view(qtbot):
