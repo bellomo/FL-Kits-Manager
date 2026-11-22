@@ -150,7 +150,7 @@ limits, and warns you when the run could use up what is left. Without Claude, ev
 | M2 | Team list and team page, kits folded and unrolled | ✅ [`39314f2`](https://github.com/bellomo/FL-Kits-Manager/commit/39314f2) |
 | M3 | Staging, deploy, undo | ✅ [`6b99c15`](https://github.com/bellomo/FL-Kits-Manager/commit/6b99c15) |
 | M4 | Import whole kits from kit packs, folder or zip (match by id and name); PNG and DDS images | ✅ [`2103776`](https://github.com/bellomo/FL-Kits-Manager/commit/2103776), [`0e554a2`](https://github.com/bellomo/FL-Kits-Manager/commit/0e554a2) |
-| M5 | Logos: view and replace crests and competition logos | |
+| M5 | Logos: view and replace crests and competition logos | ✅ [`942d72e`](https://github.com/bellomo/FL-Kits-Manager/commit/942d72e) |
 | M6 | Kits from photos loaded by the user (end-to-end script) | |
 | M7 | Claude: detection, usage estimate and warning, logos from the web | |
 | M8 | Kits from photos found and reviewed by Claude | |
