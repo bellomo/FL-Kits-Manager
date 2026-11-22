@@ -1,37 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="FL Kits Manager logo: a white football shirt wrapped in a flowing rainbow drape, after Iris, goddess of the rainbow, and a football with the wings of her sandals, inside a rainbow ring on a sky disc">
-  <!-- sky disc and the rainbow ring of Iris -->
-  <circle cx="48" cy="48" r="46" fill="#dbeaf6"/>
-  <g fill="none" stroke-width="2.2">
-    <circle cx="48" cy="48" r="44.4" stroke="#e53935"/>
-    <circle cx="48" cy="48" r="42.2" stroke="#fb8c00"/>
-    <circle cx="48" cy="48" r="40.0" stroke="#fdd835"/>
-    <circle cx="48" cy="48" r="37.8" stroke="#43a047"/>
-    <circle cx="48" cy="48" r="35.6" stroke="#1e88e5"/>
-    <circle cx="48" cy="48" r="33.4" stroke="#8e24aa"/>
-  </g>
-  <circle cx="48" cy="48" r="32.3" fill="#cfe2f3"/>
-
-
-  <!-- the shirt (Iris's white chiton as a football shirt) wrapped in her rainbow drape -->
-  <g transform="rotate(-8 50 52)">
-    <path d="M42 30 L33 35 L27 46 L34.5 50 L38 45 L38 74 L64 74 L64 45 L67.5 50 L75 46 L69 35 L60 30 Q51 37 42 30 Z" fill="#ffffff" stroke="#24364a" stroke-width="1.8" stroke-linejoin="round"/>
-    <g fill="none" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M34 42 C44 47 51 56 56 65 C60 72 68 72 72 65 C76 58 73 50 68 45 C64 41 65 35 70 31" stroke="#8e24aa" transform="translate(-5 5)"/>
-      <path d="M34 42 C44 47 51 56 56 65 C60 72 68 72 72 65 C76 58 73 50 68 45 C64 41 65 35 70 31" stroke="#1e88e5" transform="translate(-3 3)"/>
-      <path d="M34 42 C44 47 51 56 56 65 C60 72 68 72 72 65 C76 58 73 50 68 45 C64 41 65 35 70 31" stroke="#43a047" transform="translate(-1 1)"/>
-      <path d="M34 42 C44 47 51 56 56 65 C60 72 68 72 72 65 C76 58 73 50 68 45 C64 41 65 35 70 31" stroke="#fdd835" transform="translate(1 -1)"/>
-      <path d="M34 42 C44 47 51 56 56 65 C60 72 68 72 72 65 C76 58 73 50 68 45 C64 41 65 35 70 31" stroke="#fb8c00" transform="translate(3 -3)"/>
-      <path d="M34 42 C44 47 51 56 56 65 C60 72 68 72 72 65 C76 58 73 50 68 45 C64 41 65 35 70 31" stroke="#e53935" transform="translate(5 -5)"/>
-    </g>
-    <path d="M42 30 Q51 37 60 30" fill="none" stroke="#24364a" stroke-width="1.8" stroke-linecap="round"/>
-  </g>
-
-  <!-- a football with the wings of Iris's sandals -->
-  <g transform="translate(4 -1)">
-  <path d="M27.5 66 C23 62 19 63 16 59 C20 59.5 23 59.5 26 62 Z" fill="#d9ab3f" stroke="#8a6420" stroke-width="0.8" stroke-linejoin="round"/>
-  <path d="M27 69 C22 67 19 69 15 67 C19 66 22 65 26 66.5 Z" fill="#d9ab3f" stroke="#8a6420" stroke-width="0.8" stroke-linejoin="round"/>
-  <circle cx="32" cy="67" r="6.2" fill="#ffffff" stroke="#1b1b1b" stroke-width="1.2"/>
-  <path d="M32 64.2 L34.7 66.2 L33.7 69.4 L30.3 69.4 L29.3 66.2 Z" fill="#1b1b1b"/>
-  <path d="M32 64.2 V61 M34.7 66.2 L37.8 65.2 M33.7 69.4 L35.6 72 M30.3 69.4 L28.4 72 M29.3 66.2 L26.2 65.2" stroke="#1b1b1b" stroke-width="0.9" fill="none"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="FL Kits Manager logo: a striped football shirt on a green pitch disc">
+  <circle cx="48" cy="48" r="46" fill="#1f6f43"/>
+  <circle cx="48" cy="48" r="46" fill="none" stroke="#e8f5ec" stroke-width="2" opacity="0.5"/>
+  <path d="M34 20 L22 27 L15 42 L25 47 L29 40 L29 76 L67 76 L67 40 L71 47 L81 42 L74 27 L62 20 Q48 31 34 20 Z" fill="#f4f4f4" stroke="#0f2a1c" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M41 26 L41 76 M55 26 L55 76" stroke="#2a62c9" stroke-width="7"/>
+  <path d="M34 20 Q48 31 62 20" fill="none" stroke="#0f2a1c" stroke-width="2"/>
 </svg>
