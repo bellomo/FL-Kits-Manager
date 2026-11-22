@@ -77,6 +77,7 @@ No Python is needed: the exe contains everything.
 4. Choose the game folder (the one with `SiderAddons`); the app remembers it. `FLKitsManager.exe --game <folder>`
    opens a folder directly.
 5. View → Larger text / Smaller text (Ctrl++ / Ctrl+-) changes the text size; Ctrl+0 goes back to the system's.
+6. After changing the game (kits, `map.txt`, the Mod Studio world), File → Reload (F5) reads it again.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 

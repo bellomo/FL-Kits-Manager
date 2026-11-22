@@ -77,6 +77,20 @@ def test_search_without_results_says_so(qtbot):
     assert top(t)[0].flags() & Qt.ItemIsSelectable == Qt.NoItemFlags
 
 
+def test_select_a_team_by_id(qtbot):
+    t = make_tree(qtbot)
+    with qtbot.waitSignal(t.team_selected) as sig:
+        assert t.select_team(73947) is True
+    assert sig.args == [73947] and t.tree.currentItem().text(0) == "Aalborg Boldspilklub"
+    assert t.tree.currentItem().parent().isExpanded()  # shown, not hidden in a closed group
+
+
+def test_select_a_team_that_is_not_in_the_tree(qtbot):
+    t = make_tree(qtbot)
+    t.search.setText("bologna")
+    assert t.select_team(73947) is False and t.select_team(5) is False
+
+
 def test_without_a_catalog_the_tree_is_empty(qtbot):
     t = TeamTree()
     qtbot.addWidget(t)

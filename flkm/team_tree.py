@@ -1,7 +1,14 @@
 """The team list: a tree federation > country > league > team, with a search box (name or id)."""
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QLineEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QLineEdit,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QTreeWidgetItemIterator,
+    QVBoxLayout,
+    QWidget,
+)
 
 from flkm.catalog import Catalog
 
@@ -61,6 +68,21 @@ class TeamTree(QWidget):
         else:
             parent.addChild(item)
         return item
+
+    def select_team(self, team_id: int) -> bool:
+        """chooses the team in the tree (opening its groups); False when the tree does not show it"""
+        it = QTreeWidgetItemIterator(self.tree)
+        while it.value():
+            item = it.value()
+            if item.data(0, _TEAM_ID) == team_id:
+                parent = item.parent()
+                while parent is not None:
+                    parent.setExpanded(True)
+                    parent = parent.parent()
+                self.tree.setCurrentItem(item)
+                return True
+            it += 1
+        return False
 
     def _chosen(self, item: QTreeWidgetItem | None) -> None:
         team_id = item.data(0, _TEAM_ID) if item is not None else None

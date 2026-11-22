@@ -95,6 +95,63 @@ def test_kit_view_is_remembered(qtbot, game):
     assert make_window(qtbot).page.view == "unrolled"
 
 
+def add_team(game, team):
+    """the game changed on disk: one more team in Team.bin"""
+    team_bin = game / "SiderAddons" / "livecpk" / "_World" / "common" / "etc" / "pesdb" / "Team.bin"
+    teams = [(186, "Bologna FC", "BOL"), (98, "Inter", "INT"), team]
+    team_bin.write_bytes(wesys(b"".join(team_record(*t) for t in teams)))
+
+
+def test_reload_is_possible_only_with_a_game_open(qtbot, game):
+    w = make_window(qtbot)
+    assert not w.reload_action.isEnabled()
+    assert w.reload_action.shortcut().toString() == "F5"
+    w.open_game(fake_game(game))
+    assert w.reload_action.isEnabled()
+
+
+def test_reload_reads_the_game_again(qtbot, game):
+    w = make_window(qtbot, game_dir=fake_game(game))
+    add_team(game, (73947, "Aalborg Boldspilklub", "AAL"))
+    w.reload_action.trigger()
+    assert len(w.catalog.teams) == 3 and w.statusBar().currentMessage() == f"3 teams · {game}"
+    assert w.pages.currentWidget() is w.start  # no team was open
+
+
+def test_reload_keeps_the_open_team_and_the_search(qtbot, game):
+    w = make_window(qtbot, game_dir=fake_game(game))
+    w.tree.search.setText("inter")
+    w.tree.select_team(98)
+    add_team(game, (73947, "Aalborg Boldspilklub", "AAL"))
+    w.reload_action.trigger()
+    assert w.tree.search.text() == "inter"
+    assert w.pages.currentWidget() is w.page and w.page.title.text() == "Inter"
+    assert w.tree.tree.currentItem().text(0) == "Inter"
+
+
+def test_reload_shows_the_open_team_even_when_the_search_hides_it(qtbot, game):
+    w = make_window(qtbot, game_dir=fake_game(game))
+    w.tree.select_team(98)
+    w.tree.search.setText("bologna")
+    w.reload_action.trigger()
+    assert w.pages.currentWidget() is w.page and w.page.title.text() == "Inter"
+
+
+def test_reload_when_the_open_team_is_gone(qtbot, game):
+    w = make_window(qtbot, game_dir=fake_game(game))
+    add_team(game, (73947, "Aalborg Boldspilklub", "AAL"))
+    w.reload_action.trigger()
+    w.tree.select_team(73947)
+    fake_game_teams_only_two(game)
+    w.reload_action.trigger()
+    assert w.pages.currentWidget() is w.start
+
+
+def fake_game_teams_only_two(game):
+    team_bin = game / "SiderAddons" / "livecpk" / "_World" / "common" / "etc" / "pesdb" / "Team.bin"
+    team_bin.write_bytes(wesys(b"".join(team_record(*t) for t in [(186, "Bologna FC", "BOL"), (98, "Inter", "INT")])))
+
+
 @pytest.fixture
 def app_font(qapp):
     """the application font as it was: changing the text size must not leak into other tests"""

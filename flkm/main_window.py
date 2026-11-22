@@ -47,6 +47,8 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1000, 650)
         self.settings = settings.load()
         self.catalog: catalog.Catalog | None = None
+        self.game_dir: Path | None = None
+        self.team_id: int | None = None  # the team whose page is open
 
         self.tree = TeamTree()
         self.page = TeamPage(view=self.settings.view)
@@ -71,7 +73,10 @@ class MainWindow(QMainWindow):
         menu = self.menuBar().addMenu("&File")
         self.game_action = QAction("&Game folder…", self)
         self.quit_action = QAction("&Quit", self)
+        self.reload_action = QAction("&Reload", self, shortcut=QKeySequence("F5"), enabled=False)
+        self.reload_action.setStatusTip("Read the game again (after changing kits, map.txt or the Mod Studio world)")
         menu.addAction(self.game_action)
+        menu.addAction(self.reload_action)
         menu.addSeparator()
         menu.addAction(self.quit_action)
         view = self.menuBar().addMenu("&View")
@@ -88,6 +93,7 @@ class MainWindow(QMainWindow):
         self.choose_button.clicked.connect(self.choose_game)
         self.game_action.triggered.connect(self.choose_game)
         self.quit_action.triggered.connect(self.close)
+        self.reload_action.triggered.connect(self.reload)
         self.tree.team_selected.connect(self.show_team)
         self.page.view_changed.connect(self._view_changed)
 
@@ -114,12 +120,21 @@ class MainWindow(QMainWindow):
             self.catalog = catalog.load(game_dir)
         finally:
             QGuiApplication.restoreOverrideCursor()
+        self.game_dir, self.team_id = game_dir, None
         self.tree.set_catalog(self.catalog)
         self.start_text.setText("Choose a team on the left.")
         self.choose_button.hide()
         self.pages.setCurrentWidget(self.start)
+        self.reload_action.setEnabled(True)
         self.statusBar().showMessage(f"{len(self.catalog.teams)} teams · {game_dir}")
         self._save(game_dir=str(game_dir))
+
+    def reload(self) -> None:
+        """reads the game again, keeping the search and the open team"""
+        team_id = self.team_id
+        self.open_game(self.game_dir)
+        if team_id is not None and self.catalog.get(team_id) and not self.tree.select_team(team_id):
+            self.show_team(team_id)  # the search hides it
 
     def show_team(self, team_id: int) -> None:
         QGuiApplication.setOverrideCursor(Qt.WaitCursor)
@@ -127,6 +142,7 @@ class MainWindow(QMainWindow):
             self.page.show_team(self.catalog.get(team_id), self.catalog.kits(team_id))
         finally:
             QGuiApplication.restoreOverrideCursor()
+        self.team_id = team_id
         self.pages.setCurrentWidget(self.page)
 
     def set_text_size(self, size: int | None) -> None:
