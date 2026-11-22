@@ -11,7 +11,7 @@ from PySide6.QtGui import QDesktopServices, QFont
 from flkm import render
 from flkm.catalog import Team
 from flkm.game.ftex import FtexError
-from flkm.team_page import TITLE_EXTRA, TeamPage, slot_name
+from flkm.team_page import CREST_SIZE, TITLE_EXTRA, TeamPage, slot_name
 
 BOLOGNA = Team(186, "Bologna FC", "BOL", "Italy D1", "Italy", "UEFA")
 
@@ -202,3 +202,52 @@ def test_showing_another_team_replaces_the_cards(qtbot):
     p.show_team(BOLOGNA, [FakeKit("p1"), FakeKit("p2")])
     p.show_team(BOLOGNA, [FakeKit("g1")])
     assert [c.name.text() for c in p.cards] == ["Goalkeeper"]
+
+
+# --- crest -----------------------------------------------------------------------------------------------------------
+
+
+def test_the_crest_next_to_the_team_name(qtbot):
+    p = make_page(qtbot)
+    p.show_team(BOLOGNA, [])
+    p.show_crest(Image.new("RGBA", (512, 512), (200, 0, 0, 255)), "e_000186_r_ll.png · livecpk\\_World")
+    pix = p.crest.pixmap()
+    assert (pix.width(), pix.height()) == (CREST_SIZE, CREST_SIZE)
+    assert p.crest_source.text() == "e_000186_r_ll.png · livecpk\\_World"
+    assert p.replace_crest_button.text() == "Replace crest…" and not p.keep_crest_button.isVisibleTo(p)
+    with qtbot.waitSignal(p.crest_replace_requested):
+        p.replace_crest_button.click()
+
+
+def test_a_team_without_a_crest(qtbot):
+    p = make_page(qtbot)
+    p.show_crest(None, "")
+    assert p.crest.text() == "No crest" and p.crest_source.text() == ""
+
+
+def test_a_crest_waiting_for_deploy(qtbot):
+    p = make_page(qtbot)
+    p.show_crest(Image.new("RGBA", (100, 50)), "New crest, not deployed yet: bologna.png", pending=True)
+    assert p.keep_crest_button.isVisibleTo(p) and p.keep_crest_button.text() == "Keep the current crest"
+    assert "d9822b" in p.crest_source.styleSheet()
+    with qtbot.waitSignal(p.crest_discard_requested):
+        p.keep_crest_button.click()
+    p.show_crest(None, "")
+    assert not p.keep_crest_button.isVisibleTo(p) and "gray" in p.crest_source.styleSheet()
+
+
+def test_the_folder_of_the_crest_is_shown_above_the_kits_folder_with_its_own_open_folder(qtbot, monkeypatch):
+    opened = []
+    monkeypatch.setattr(QDesktopServices, "openUrl", lambda url: opened.append(url.toLocalFile()))
+    p = make_page(qtbot)
+    flags = Path("C:/FL/livecpk/_World/common/render/symbol/flag")
+    p.show_crest(Image.new("RGBA", (256, 256)), "e_000186_r_l.png", folder=flags)
+    assert p.crest_source.text() == "e_000186_r_l.png"
+    assert p.crest_folder_row.isVisibleTo(p) and p.crest_folder_label.text() == str(flags)
+    assert p.crest_folder_label.toolTip() == str(flags)
+    p.open_crest_folder_button.click()
+    assert [Path(u) for u in opened] == [flags]
+    layout = p.layout()
+    assert layout.indexOf(p.crest_folder_row) == layout.indexOf(p.folder_row) - 1
+    p.show_crest(None, "No crest in the game files")  # no file: no folder
+    assert not p.crest_folder_row.isVisibleTo(p)

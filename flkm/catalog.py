@@ -8,8 +8,12 @@ Read only.
 - Country: from the code of a game league, or from the Mod Studio recipe for the leagues Mod Studio adds; a team in no
   league whose name is a country's (a national team) gets that country, and "National team" as its league.
 - Federation: the confederation of the country in Country.bin.
+
+Competitions are named the same way; the cups and supercups Mod Studio adds (FL_363_CUP) by the recipe of their league,
+its other competitions (FL_UECL) by the name Mod Studio writes in their regulation records.
 """
 
+import re
 import unicodedata
 from collections import Counter
 from dataclasses import dataclass
@@ -24,6 +28,7 @@ TEAM_BIN = PESDB + "Team.bin"
 _CODE_ALIASES = {"US": "USA", "KSA": "SAUDI ARABIA"}  # game league codes that are not the country's name
 # national teams whose name is not the country's name in Country.bin
 _NATIONAL_ALIASES = {"United States": "USA", "South Korea": "REPUBLIC OF KOREA", "North Korea": "KOREA DPR"}
+_MOD_STUDIO_CUP = re.compile(r"^FL_(\d+)_([A-Z]+)$")  # a competition of a Mod Studio league: cup, play-off...
 _LOWER = {"AND", "OF", "THE"}
 _UPPER = {"DPR", "DR", "USA", "UAE", "FYR"}
 
@@ -61,12 +66,45 @@ def _sorted(groups: dict) -> dict:
     return dict(sorted(groups.items(), key=lambda kv: (kv[0] is None, _fold(kv[0] or ""))))
 
 
+@dataclass(frozen=True)
+class Competition:
+    id: int
+    code: str  # the game's code name, e.g. ITALY_D1_CUP
+    name: str  # as the game shows it (a league as the team list names it), else the code
+    country: str | None
+    federation: str | None
+
+
 class Catalog:
-    def __init__(self, game_files: GameFiles, kit_map: kitmap.KitMap, teams: list[Team]):
+    def __init__(
+        self,
+        game_files: GameFiles,
+        kit_map: kitmap.KitMap,
+        teams: list[Team],
+        competitions: list[Competition] | None = None,
+    ):
         self.files = game_files
         self.kit_map = kit_map
         self.teams = teams
+        self.competitions = competitions or []
         self._by_id = {t.id: t for t in teams}
+        self._comps = {c.id: c for c in self.competitions}
+
+    def competition(self, comp_id: int) -> Competition | None:
+        return self._comps.get(comp_id)
+
+    def competitions_by_federation(self) -> dict[str | None, dict[str | None, list[Competition]]]:
+        """federation -> country -> competitions sorted by name; names sorted with None last"""
+        groups: dict = {}
+        for c in sorted(self.competitions, key=lambda c: _fold(c.name)):
+            groups.setdefault(c.federation, {}).setdefault(c.country, []).append(c)
+        return _sorted({f: _sorted(cs) for f, cs in groups.items()})
+
+    def search_competitions(self, text: str) -> list[Competition]:
+        q = _fold(text.strip())
+        if not q:
+            return self.competitions
+        return [c for c in self.competitions if q in _fold(c.name) or q in _fold(c.code) or q == str(c.id)]
 
     def get(self, team_id: int) -> Team | None:
         return self._by_id.get(team_id)
@@ -108,7 +146,8 @@ def load(game_dir: Path) -> Catalog:
     gf = GameFiles(game_dir)
     km = kitmap.load(gf.sider_folder / "content" / "kits" / "map.txt")
     base = _table(gf, "Team.bin", pesdb.teams)
-    comps = {c.id: c for c in _table(gf, "Competition.bin", pesdb.competitions) if c.is_league}
+    all_comps = _table(gf, "Competition.bin", pesdb.competitions)
+    comps = {c.id: c for c in all_comps if c.is_league}
     league_of: dict[int, pesdb.Competition] = {}
     for e in _table(gf, "CompetitionEntry.bin", pesdb.competition_entries):
         if e.competition_id in comps:
@@ -125,11 +164,15 @@ def load(game_dir: Path) -> Catalog:
 
     countries = {_fold(c.name): c for c in _table(gf, "Country.bin", pesdb.countries)}
     spelling = {key: pretty_country(c.name) for key, c in countries.items()}
-    recipe_countries = recipe.league_countries(recipe.path(gf.sider.world))
+    recipe_leagues = {lg.name: lg for lg in recipe.leagues(recipe.path(gf.sider.world))}
+    recipe_countries = {name: lg.country for name, lg in recipe_leagues.items()}
     for c in recipe_countries.values():  # the game's spelling wins (the recipe writes Usa, Guinea-bissau)
         spelling.setdefault(_fold(c), c)
 
-    shown = _table(gf, "CompetitionRegulation.bin", pesdb.regulation_names) or {}
+    records = _table(gf, "CompetitionRegulation.bin", pesdb.regulation_records)
+    shown: dict[str, str] = {}
+    for _, code, name in records:
+        shown.setdefault(code, name)
 
     def game_name(code: str) -> str | None:
         """the name the game shows: the record of the code, else its first stage (ITALY_D1_LEAGUE_SPLIT_TOTAL...)"""
@@ -144,6 +187,69 @@ def load(game_dir: Path) -> Catalog:
         name = votes[comp.id].most_common(1)[0][0] if comp.id in votes else comp.name
         country = recipe_countries.get(name)
         return name, _fold(country) if country else None
+
+    def code_country(code: str) -> str | None:
+        """the country key at the start of a code (ITALY_D1_CUP -> italy, US_D1_CUP -> usa), if the game has it"""
+        words = code.split("_")
+        for n in range(len(words) - 1, 0, -1):
+            key = _fold(_CODE_ALIASES.get(" ".join(words[:n]), " ".join(words[:n])))
+            if key in spelling:
+                return key
+        return None
+
+    by_code = {c.name: c for c in all_comps}
+
+    def mod_studio_cup(code: str) -> tuple[str | None, str | None]:
+        """name and country key of a competition Mod Studio adds to its league (FL_363_CUP, FL_363_LCUP, FL_363_RPO):
+        the country of the league; the name of a cup or supercup from the recipe"""
+        m = _MOD_STUDIO_CUP.match(code)
+        league = by_code.get(f"FL_{m.group(1)}_LEAGUE") if m else None
+        if league is None:
+            return None, None
+        league_name, key = comp_league(league)
+        lg = recipe_leagues.get(league_name)
+        names = {"CUP": lg.cup, "SUPER": lg.supercup} if lg else {}
+        return names.get(m.group(2)), key
+
+    named = []
+    for comp in all_comps:
+        if comp.is_league:
+            name, key = comp_league(comp)
+        else:
+            cup, cup_key = mod_studio_cup(comp.name)
+            name, key = game_name(comp.name) or cup or comp.name, code_country(comp.name) or cup_key
+        named.append([comp, name, key])
+
+    # Mod Studio writes the name of its other competitions (FL_UECL...) as the code of their regulation records, which
+    # hold only the low byte of the competition id: a name goes to a competition when no other one left can have it
+    codes = set(by_code)
+    free = [(low, name) for low, code, name in records if not any(code == k or code.startswith(k + "_") for k in codes)]
+    used = {name for comp, name, _ in named if name != comp.name}
+    candidates = {
+        comp.id: {n for low, n in free if low == comp.id & 0xFF} for comp, name, _ in named if name == comp.name
+    }
+    while True:
+        for cands in candidates.values():
+            cands -= {n for n in cands if n in used or any(n.startswith(u + " ") for u in used)}
+        sure = {
+            cid: next(iter(cands))
+            for cid, cands in candidates.items()
+            if len(cands) == 1 and sum(cands <= other for other in candidates.values()) == 1
+        }
+        if not sure:
+            break
+        for row in named:
+            if row[0].id in sure:
+                row[1] = sure[row[0].id]
+                del candidates[row[0].id]
+        used |= set(sure.values())
+
+    competitions = []
+    for comp, name, key in named:
+        c = countries.get(key) if key else None
+        competitions.append(
+            Competition(comp.id, comp.name, name, spelling.get(key) if key else None, c.federation if c else None)
+        )
 
     teams = []
     for t in base:
@@ -160,4 +266,4 @@ def load(game_dir: Path) -> Catalog:
         teams.append(
             Team(t.id, t.name, t.abbr, league, spelling.get(key) if key else None, c.federation if c else None)
         )
-    return Catalog(gf, km, teams)
+    return Catalog(gf, km, teams, competitions)

@@ -231,3 +231,82 @@ def test_game_without_team_bin_has_no_teams(game):
     (game / "SiderAddons" / "sider.ini").write_text("", encoding="utf-8")
     cat = catalog.load(game)
     assert cat.teams == [] and isinstance(cat.files, files.GameFiles)
+
+
+# --- competitions ----------------------------------------------------------------------------------------------------
+
+
+def comp_row(c):
+    return (c.id, c.code, c.name, c.country, c.federation)
+
+
+def test_every_competition_with_its_name_country_and_federation(game):
+    g = make_game(game, TEAMS, MAP, COMPS, [(186, 10), (73947, 251)], COUNTRIES, RECIPE, REGULATIONS)
+    cat = catalog.load(g)
+    assert [comp_row(c) for c in cat.competitions] == [
+        (10, "ITALY_D1_LEAGUE", "Serie A TIM", "Italy", "UEFA"),
+        (16, "ITALY_D1_CUP", "Coppa Italia", "Italy", "UEFA"),  # a cup: country from its code
+        (251, "FL_363_LEAGUE", "1. division", "Denmark", "UEFA"),  # a Mod Studio league, as the team list names it
+        (300, "FL_400_LEAGUE", "FL_400_LEAGUE", None, None),
+        (40, "US_D1_LEAGUE", "Major League Soccer", "USA", "CONCACAF"),
+        (139, "KSA_D1_LEAGUE", "Saudi Arabia D1", "Saudi Arabia", "AFC"),
+        (2, "UEFA_CHAMPIONS_LEAGUE", "UEFA_CHAMPIONS_LEAGUE", None, None),  # no name in the game: its code
+        (33, "EURO", "EURO", None, None),
+    ]
+    assert cat.competition(16).name == "Coppa Italia" and cat.competition(999) is None
+
+
+def test_competitions_by_federation_and_country(game):
+    cat = catalog.load(make_game(game, TEAMS, MAP, COMPS, [], COUNTRIES, RECIPE, REGULATIONS))
+    groups = cat.competitions_by_federation()
+    assert list(groups) == ["AFC", "CONCACAF", "UEFA", None]
+    assert [c.name for c in groups["UEFA"]["Italy"]] == ["Coppa Italia", "Serie A TIM"]
+    assert [c.id for c in groups[None][None]] == [33, 251, 300, 2]  # by name; Mod Studio leagues without teams too
+    assert [c.id for c in cat.search_competitions("coppa")] == [16]
+    assert [c.id for c in cat.search_competitions("33")] == [33]
+    assert len(cat.search_competitions(" ")) == len(COMPS)
+
+
+def test_a_game_without_competition_tables_has_no_competitions(game):
+    assert catalog.load(make_game(game, TEAMS)).competitions == []
+
+
+def test_mod_studio_cups_are_named_from_the_recipe_and_its_other_competitions_from_their_regulation(game):
+    comps = COMPS + [
+        (260, "FL_363_CUP"),
+        (261, "FL_363_SUPER"),
+        (262, "FL_400_CUP"),  # its league has no name: no cup name
+        (174, "FL_UECL"),
+        (515, "FL_A"),  # two competitions with the same low id byte: no way to tell which name is whose
+        (259, "FL_B"),
+        (42, "GERMANY_D1_CUP"),
+    ]
+    regulations = REGULATIONS + [
+        ("UEFA Conference League", "UEFA Conference League", "", 174),
+        ("1. division Championship Round", "1. division Championship Round", "", 174),  # a stage of a named league
+        ("Landspokal", "Landspokal", "", 174),  # a name another competition has
+        ("A Cup", "A Cup", "", 3),
+        ("GERMANY_CUP_KNOCKOUT", "DFB Pokal", "", 42),  # a game record whose code is not a competition's
+    ]
+    recipe = [
+        {"name": "1. division", "country": "Denmark", "cup_name": "Landspokal", "supercup_name": "Super Cup DK"},
+        {"name": "Czech 3. liga", "country": "Czech Republic"},
+    ]
+    g = make_game(game, TEAMS, MAP, comps, [(186, 10), (73947, 251)], COUNTRIES, recipe, regulations)
+    cat = catalog.load(g)
+    assert comp_row(cat.competition(260)) == (260, "FL_363_CUP", "Landspokal", "Denmark", "UEFA")
+    assert comp_row(cat.competition(261)) == (261, "FL_363_SUPER", "Super Cup DK", "Denmark", "UEFA")
+    assert cat.competition(262).name == "FL_400_CUP"
+    assert comp_row(cat.competition(174)) == (174, "FL_UECL", "UEFA Conference League", None, None)
+    assert (cat.competition(515).name, cat.competition(259).name) == ("FL_A", "FL_B")
+    assert comp_row(cat.competition(42)) == (42, "GERMANY_D1_CUP", "DFB Pokal", None, None)
+
+
+def test_every_competition_of_a_mod_studio_league_has_the_country_of_its_league(game):
+    comps = COMPS + [(522, "FL_363_LCUP"), (650, "FL_363_RPO"), (700, "FL_400_UPO"), (701, "FL_999_APO")]
+    g = make_game(game, TEAMS, MAP, comps, [(186, 10), (73947, 251)], COUNTRIES, RECIPE, REGULATIONS)
+    cat = catalog.load(g)
+    assert comp_row(cat.competition(522)) == (522, "FL_363_LCUP", "FL_363_LCUP", "Denmark", "UEFA")
+    assert comp_row(cat.competition(650)) == (650, "FL_363_RPO", "FL_363_RPO", "Denmark", "UEFA")
+    assert cat.competition(700).country is None  # its league has no country
+    assert cat.competition(701).country is None  # no such league

@@ -1,4 +1,4 @@
-"""The team page: the team's name and details, and its kits folded or unrolled."""
+"""The team page: the team's crest, name and details, and its kits folded or unrolled."""
 
 import os
 from pathlib import Path
@@ -26,12 +26,53 @@ UNROLLED = 320  # size of an unrolled kit on the page
 TITLE_EXTRA = 6  # the team name is this many points larger than the text
 COLUMNS = {"folded": 2, "unrolled": 3}
 PENDING_COLOUR = "#d9822b"  # kits waiting for Deploy
+CREST_SIZE = 96  # the crest next to the team name
 
 
-def to_pixmap(img: Image.Image) -> QPixmap:
+def to_pixmap(img: Image.Image, alpha: bool = False) -> QPixmap:
+    if alpha:
+        rgba = img.convert("RGBA")
+        image = QImage(rgba.tobytes(), rgba.width, rgba.height, 4 * rgba.width, QImage.Format_RGBA8888)
+        return QPixmap.fromImage(image.copy())
     rgb = img.convert("RGB")
     data = rgb.tobytes()
     return QPixmap.fromImage(QImage(data, rgb.width, rgb.height, 3 * rgb.width, QImage.Format_RGB888).copy())
+
+
+def common_folder(folders: list[Path]) -> Path | None:
+    """the folder that holds them all; None for none, or on different drives"""
+    try:
+        return Path(os.path.commonpath(folders)) if folders else None
+    except ValueError:  # on different drives
+        return None
+
+
+def folder_row(what: str, whose: str) -> tuple[QWidget, QLabel, QPushButton]:
+    """a hidden row "<what> in: <folder> [Open folder]" """
+    label = QLabel()
+    label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+    label.setStyleSheet("color: gray")
+    label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)  # a long path does not widen the page
+    button = QPushButton("Open folder")
+    button.setToolTip(f"Open the folder of the {whose} in Explorer")
+    row_widget = QWidget()
+    row = QHBoxLayout(row_widget)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.addWidget(QLabel(f"{what} in:"))
+    row.addWidget(label, 1)
+    row.addWidget(button)
+    row_widget.setVisible(False)
+    return row_widget, label, button
+
+
+def show_folder(row: QWidget, label: QLabel, folder: Path | None) -> None:
+    label.setText(str(folder or ""))
+    label.setToolTip(str(folder or ""))
+    row.setVisible(folder is not None)
+
+
+def open_folder(folder: Path) -> None:
+    QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
 
 def kit_picture(kit, view: str) -> Image.Image:
@@ -95,6 +136,8 @@ class TeamPage(QWidget):
     view_changed = Signal(str)
     replace_requested = Signal(str)  # slot
     discard_requested = Signal(str)  # slot
+    crest_replace_requested = Signal()
+    crest_discard_requested = Signal()
 
     def __init__(self, view: str = "folded", parent: QWidget | None = None):
         super().__init__(parent)
@@ -113,22 +156,13 @@ class TeamPage(QWidget):
         self.folded_button.clicked.connect(lambda: self.set_view("folded"))
         self.unrolled_button.clicked.connect(lambda: self.set_view("unrolled"))
         self.folder: Path | None = None
-        self.folder_label = QLabel()
-        self.folder_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.folder_label.setStyleSheet("color: gray")
-        self.folder_label.setSizePolicy(
-            QSizePolicy.Ignored, QSizePolicy.Preferred
-        )  # a long path does not widen the page
-        self.open_folder_button = QPushButton("Open folder")
-        self.open_folder_button.setToolTip("Open the folder of the team's kits in Explorer")
-        self.open_folder_button.clicked.connect(self.open_folder)
-        self.folder_row = QWidget()
-        row = QHBoxLayout(self.folder_row)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.addWidget(QLabel("Kits in:"))
-        row.addWidget(self.folder_label, 1)
-        row.addWidget(self.open_folder_button)
-        self.folder_row.setVisible(False)
+        self.folder_row, self.folder_label, self.open_folder_button = folder_row("Kits", "team's kits")
+        self.open_folder_button.clicked.connect(lambda: open_folder(self.folder))
+        self.crest_folder: Path | None = None
+        self.crest_folder_row, self.crest_folder_label, self.open_crest_folder_button = folder_row(
+            "Crest", "team's crest"
+        )
+        self.open_crest_folder_button.clicked.connect(lambda: open_folder(self.crest_folder))
         self.empty = QLabel("No kits found for this team.")
         self.grid = QGridLayout()
         grid_widget = QWidget()
@@ -136,15 +170,37 @@ class TeamPage(QWidget):
         scroll = QScrollArea(widgetResizable=True)
         scroll.setWidget(grid_widget)
 
+        self.crest = QLabel(alignment=Qt.AlignCenter)
+        self.crest.setFixedSize(CREST_SIZE, CREST_SIZE)
+        self.crest_source = QLabel()
+        self.crest_source.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.replace_crest_button = QPushButton("Replace crest…")
+        self.replace_crest_button.setToolTip(
+            "Choose a picture (PNG, DDS, JPEG) for the team's crest (installed by Deploy)"
+        )
+        self.keep_crest_button = QPushButton("Keep the current crest")
+        self.keep_crest_button.setVisible(False)
+        self.replace_crest_button.clicked.connect(self.crest_replace_requested)
+        self.keep_crest_button.clicked.connect(self.crest_discard_requested)
+        crest_row = QHBoxLayout()
+        crest_row.addWidget(self.crest_source)
+        crest_row.addWidget(self.replace_crest_button)
+        crest_row.addWidget(self.keep_crest_button)
+        crest_row.addStretch()
+        self.show_crest(None, "")
+
         header = QHBoxLayout()
         names = QVBoxLayout()
         names.addWidget(self.title)
         names.addWidget(self.details)
+        names.addLayout(crest_row)
+        header.addWidget(self.crest)
         header.addLayout(names, 1)
         header.addWidget(self.folded_button)
         header.addWidget(self.unrolled_button)
         layout = QVBoxLayout(self)
         layout.addLayout(header)
+        layout.addWidget(self.crest_folder_row)
         layout.addWidget(self.folder_row)
         layout.addWidget(self.empty)
         layout.addWidget(scroll, 1)
@@ -171,13 +227,8 @@ class TeamPage(QWidget):
             card.setParent(None)
             card.deleteLater()
         have = {k.slot for k in kits}
-        try:
-            self.folder = Path(os.path.commonpath([k.folder for k in kits])) if kits else None
-        except ValueError:  # on different drives
-            self.folder = None
-        self.folder_label.setText(str(self.folder or ""))
-        self.folder_label.setToolTip(str(self.folder or ""))
-        self.folder_row.setVisible(self.folder is not None)
+        self.folder = common_folder([k.folder for k in kits])
+        show_folder(self.folder_row, self.folder_label, self.folder)
 
         def card(k) -> KitCard:
             if k.slot in pending:
@@ -197,8 +248,25 @@ class TeamPage(QWidget):
         self._place()
         self.empty.setVisible(not self.cards)
 
-    def open_folder(self) -> None:
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.folder)))
+    def show_crest(
+        self, image: Image.Image | None, text: str, pending: bool = False, folder: Path | None = None
+    ) -> None:
+        """the team's crest (None: the game has none), its file name or a note, and the folder it is in (shown above
+        the kits folder); pending = a crest waiting for Deploy"""
+        self.crest_folder = folder
+        show_folder(self.crest_folder_row, self.crest_folder_label, folder)
+        if image is None:
+            self.crest.setPixmap(QPixmap())
+            self.crest.setText("No crest")
+        else:
+            square = image.convert("RGBA")
+            square.thumbnail((CREST_SIZE, CREST_SIZE), Image.LANCZOS)
+            canvas = Image.new("RGBA", (CREST_SIZE, CREST_SIZE), (0, 0, 0, 0))
+            canvas.alpha_composite(square, ((CREST_SIZE - square.width) // 2, (CREST_SIZE - square.height) // 2))
+            self.crest.setPixmap(to_pixmap(canvas, alpha=True))
+        self.crest_source.setText(text)
+        self.crest_source.setStyleSheet(f"color: {PENDING_COLOUR if pending else 'gray'}")
+        self.keep_crest_button.setVisible(pending)
 
     def _place(self) -> None:
         columns = COLUMNS[self.view]

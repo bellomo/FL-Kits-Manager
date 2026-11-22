@@ -3,7 +3,9 @@
 <folder>/staging.json lists the changes. A change is one kit of one team, either
 - "texture": a new texture only, <folder>/files/u<team><slot>.ftex (Replace…), or
 - "kit": a whole kitserver kit from a pack, <folder>/files/u<team><slot>/ with config.txt and its textures.
-A new change for the same kit replaces the old one.
+- "logo": a team's crest (slot "crest") or a competition's logo (slot "emblem", team_id = the competition's id),
+  <folder>/files/<slot>_<id>/<game path of each PNG>.
+A new change for the same kit replaces the old one; a new logo keeps the staged files it does not replace.
 """
 
 import json
@@ -13,6 +15,8 @@ from pathlib import Path
 
 from flkm.game import ftex, ftex_write
 
+LOGO_FOLDER = "common/render/symbol/"  # crests and competition logos are below this game folder
+
 
 @dataclass(frozen=True)
 class Change:
@@ -21,7 +25,7 @@ class Change:
     slot: str
     file: str  # name of the copy in <folder>/files (a file for a texture, a folder for a kit)
     source: str  # where it comes from: the file the user chose, or the pack and its team folder
-    kind: str = "texture"  # "texture" or "kit"
+    kind: str = "texture"  # "texture", "kit" or "logo"
     texture: str = ""  # kit: the name of the kit's texture in its folder
 
 
@@ -97,8 +101,33 @@ class Staging:
             (folder / name).write_bytes(data)
         return self._put(change)
 
+    def add_logo(self, owner_id: int, name: str, slot: str, files: dict[str, bytes], source: str) -> Change:
+        """stages logo files (game path -> PNG) of a team ("crest") or competition ("emblem"); files staged before
+        for the same logo and not given again are kept. Raises ValueError for a path outside the logo folders."""
+        for path in files:
+            parts = path.split("/")
+            if not path.startswith(LOGO_FOLDER) or not all(_plain(p) for p in parts):
+                raise ValueError(f"Not a logo file: {path!r}")
+        old = self.logo(slot, owner_id)
+        merged = (self.logo_files(old) if old else {}) | files
+        change = Change(owner_id, name, slot, f"{slot}_{owner_id}", source, kind="logo")
+        self._drop(change)
+        for path, data in merged.items():
+            target = self.path(change) / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        return self._put(change)
+
+    def logo(self, slot: str, owner_id: int) -> Change | None:
+        return next((c for c in self.changes if c.kind == "logo" and (c.slot, c.team_id) == (slot, owner_id)), None)
+
+    def logo_files(self, change: Change) -> dict[str, bytes]:
+        folder = self.path(change)
+        return {p.relative_to(folder).as_posix(): p.read_bytes() for p in sorted(folder.rglob("*")) if p.is_file()}
+
     def for_team(self, team_id: int) -> dict[str, Change]:
-        return {c.slot: c for c in self.changes if c.team_id == team_id}
+        """the team's kits waiting for Deploy, by slot"""
+        return {c.slot: c for c in self.changes if c.team_id == team_id and c.kind != "logo"}
 
     def remove(self, team_id: int, slot: str) -> None:
         for c in [c for c in self.changes if (c.team_id, c.slot) == (team_id, slot)]:

@@ -1,13 +1,16 @@
 """Main window: the team list on the left, the page of the chosen team on the right.
 
-Kits chosen with Replace… (a texture) or Changes > Import kit pack (whole kits) wait in the staging area (shown on
-the team page) until Changes > Deploy installs them; Changes > Undo last deploy puts back what the last deploy changed.
+Kits chosen with Replace… (a texture) or Changes > Import kit pack (whole kits), and crests chosen with Replace
+crest…, wait in the staging area (shown on the team page) until Changes > Deploy installs them; Changes > Undo last
+deploy puts back what the last deploy changed.
 """
 
 import dataclasses
+import io
 from collections.abc import Callable
 from pathlib import Path
 
+from PIL import Image
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QFont, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
@@ -21,20 +24,24 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSplitter,
     QStackedWidget,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 import flkm
 from flkm import catalog, deploy, pack, settings
-from flkm.game import ftex, kits, process
+from flkm.competition_page import CompetitionPage
+from flkm.competition_tree import CompetitionTree
+from flkm.game import ftex, kits, logos, process
 from flkm.import_dialog import ImportDialog
 from flkm.staging import Staging
-from flkm.team_page import PENDING_COLOUR, TeamPage, slot_name
+from flkm.team_page import PENDING_COLOUR, TeamPage, common_folder, slot_name
 from flkm.team_tree import TeamTree
 
 APP_NAME = "FL Kits Manager"
 GAME_NAME = "SP Football Life 2027"
+PICTURES = "Pictures (*.png *.dds *.jpg *.jpeg *.webp)"
 _SYSTEM_FONT: list[QFont] = []  # the application font before the user changed the text size
 
 
@@ -55,6 +62,19 @@ def _kits(n: int) -> str:
     return f"{n} kit" if n == 1 else f"{n} kits"
 
 
+def _waiting(changes: list) -> str:
+    logo_count = sum(c.kind == "logo" for c in changes)
+    return _count(len(changes) - logo_count, logo_count)
+
+
+def _count(kit_count: int, logo_count: int) -> str:
+    """'2 kits', '1 logo', '1 kit and 2 logos'"""
+    parts = [_kits(kit_count)] if kit_count or not logo_count else []
+    if logo_count:
+        parts.append(f"{logo_count} logo" + ("" if logo_count == 1 else "s"))
+    return " and ".join(parts)
+
+
 class MainWindow(QMainWindow):
     def __init__(self, game_dir: Path | None = None):
         super().__init__()
@@ -65,9 +85,15 @@ class MainWindow(QMainWindow):
         self.catalog: catalog.Catalog | None = None
         self.game_dir: Path | None = None
         self.team_id: int | None = None  # the team whose page is open
+        self.comp_id: int | None = None  # the competition whose page is open
 
         self.tree = TeamTree()
+        self.comp_tree = CompetitionTree()
+        self.sides = QTabWidget()
+        self.sides.addTab(self.tree, "Teams")
+        self.sides.addTab(self.comp_tree, "Competitions")
         self.page = TeamPage(view=self.settings.view)
+        self.comp_page = CompetitionPage()
         self.start = QWidget()
         self.start_text = QLabel(f"Choose the folder of {GAME_NAME} to see its teams and kits.")
         self.start_text.setAlignment(Qt.AlignCenter)
@@ -80,6 +106,7 @@ class MainWindow(QMainWindow):
         self.pages = QStackedWidget()
         self.pages.addWidget(self.start)
         self.pages.addWidget(self.page)
+        self.pages.addWidget(self.comp_page)
 
         self.links_banner = QWidget()  # shown when another tool removed the app's links to its kits
         self.links_banner.setStyleSheet(f"background: {PENDING_COLOUR}; color: white")
@@ -97,7 +124,7 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.pages, 1)
 
         splitter = QSplitter()
-        splitter.addWidget(self.tree)
+        splitter.addWidget(self.sides)
         splitter.addWidget(right)
         splitter.setSizes([320, 880])
         self.setCentralWidget(splitter)
@@ -158,6 +185,11 @@ class MainWindow(QMainWindow):
         self.page.view_changed.connect(self._view_changed)
         self.page.replace_requested.connect(self.replace_kit)
         self.page.discard_requested.connect(self.keep_kit)
+        self.page.crest_replace_requested.connect(self.replace_crest)
+        self.page.crest_discard_requested.connect(self.keep_crest)
+        self.comp_tree.competition_selected.connect(self.show_competition)
+        self.comp_page.replace_requested.connect(self.replace_logo)
+        self.comp_page.discard_requested.connect(self.keep_logo)
 
         if game_dir is not None:
             self.open_game(Path(game_dir))
@@ -185,8 +217,9 @@ class MainWindow(QMainWindow):
             self.catalog = catalog.load(game_dir)
         finally:
             QGuiApplication.restoreOverrideCursor()
-        self.game_dir, self.team_id = game_dir, None
+        self.game_dir, self.team_id, self.comp_id = game_dir, None, None
         self.tree.set_catalog(self.catalog)
+        self.comp_tree.set_catalog(self.catalog)
         self.start_text.setText("Choose a team on the left.")
         self.choose_button.hide()
         self.pages.setCurrentWidget(self.start)
@@ -197,9 +230,13 @@ class MainWindow(QMainWindow):
 
     def reload(self) -> None:
         """reads the game again, keeping the search and the open team"""
-        team_id = self.team_id
+        team_id, comp_id = self.team_id, self.comp_id
+        on_comp = self.pages.currentWidget() is self.comp_page
         self.open_game(self.game_dir)
-        if team_id is not None and self.catalog.get(team_id) and not self.tree.select_team(team_id):
+        if on_comp:
+            if self.catalog.competition(comp_id) and not self.comp_tree.select(comp_id):
+                self.show_competition(comp_id)  # the search hides it
+        elif team_id is not None and self.catalog.get(team_id) and not self.tree.select_team(team_id):
             self.show_team(team_id)  # the search hides it
 
     def show_team(self, team_id: int) -> None:
@@ -221,8 +258,99 @@ class MainWindow(QMainWindow):
         for card in self.page.cards:
             if card.pending:
                 card.source.setToolTip(staged[card.kit.slot].source)  # the whole path of the chosen file or pack
+        self._show_crest(team_id)
         self.team_id = team_id
         self.pages.setCurrentWidget(self.page)
+
+    def _show_crest(self, team_id: int) -> None:
+        staged = self.staging.logo("crest", team_id)
+        if staged:
+            files = self.staging.logo_files(staged)
+            image = Image.open(io.BytesIO(files[logos.crest_files(team_id)[512]]))
+            self.page.show_crest(image, f"New crest, not deployed yet: {Path(staged.source).name}", pending=True)
+            self.page.crest_source.setToolTip(staged.source)
+            return
+        found = logos.find_crest(self.catalog.files, team_id)
+        if found is None:
+            self.page.show_crest(None, "No crest in the game files")
+        else:
+            self.page.show_crest(logos.picture(found), found.file_name, folder=found.folder)
+        self.page.crest_source.setToolTip("")
+
+    def replace_crest(self) -> None:
+        team = self.catalog.get(self.team_id)
+        path, _ = QFileDialog.getOpenFileName(self, f"New crest for {team.name}", "", PICTURES)
+        if not path:
+            return
+        try:
+            files = logos.make_crest(logos.load(Path(path)), team.id)
+        except logos.LogoError as e:
+            QMessageBox.warning(self, APP_NAME, str(e))
+            return
+        self.staging.add_logo(team.id, team.name, "crest", files, path)
+        self._changes_made()
+
+    def keep_crest(self) -> None:
+        self.staging.remove(self.team_id, "crest")
+        self._changes_made()
+
+    # --- competitions ------------------------------------------------------------------------------------------------
+
+    def show_competition(self, comp_id: int) -> None:
+        staged = self.staging.logo("emblem", comp_id)
+        files = self.staging.logo_files(staged) if staged else {}
+        names = logos.emblem_files(comp_id)
+        variants, tips, found = {}, {}, {}
+        for v in logos.VARIANTS:
+            new = files.get(names[(v, 512)])
+            if new is not None:
+                source = self._logo_sources(staged).get(v, staged.source)
+                variants[v] = (Image.open(io.BytesIO(new)), f"New logo, not deployed yet: {Path(source).name}", True)
+                tips[v] = source
+            elif (f := logos.find_emblem(self.catalog.files, comp_id, v)) is None:
+                variants[v] = (None, "Not in the game files", False)
+            else:
+                found[v] = f
+        folder = common_folder([f.folder for f in found.values()])
+        for v, f in found.items():
+            path = f.folder / f.file_name
+            variants[v] = (logos.picture(f), str(path.relative_to(folder) if folder else path), False)
+            tips[v] = str(path)
+        self.comp_page.show_competition(
+            self.catalog.competition(comp_id), variants, pending=staged is not None, folder=folder
+        )
+        for card in self.comp_page.cards:
+            card.source.setToolTip(tips.get(card.variant, ""))
+        self.comp_id = comp_id
+        self.pages.setCurrentWidget(self.comp_page)
+
+    def _logo_sources(self, change) -> dict[str, str]:
+        """variant -> the picture it was made from (kept in the change's source as variant=path lines)"""
+        return dict(line.split("=", 1) for line in change.source.splitlines() if "=" in line)
+
+    def replace_logo(self, which: str) -> None:
+        comp = self.catalog.competition(self.comp_id)
+        what = "logo" if which == "all" else f"{logos.VARIANTS[which].lower()} logo"
+        path, _ = QFileDialog.getOpenFileName(self, f"New {what} for {comp.name}", "", PICTURES)
+        if not path:
+            return
+        try:
+            image = logos.load(Path(path))
+        except logos.LogoError as e:
+            QMessageBox.warning(self, APP_NAME, str(e))
+            return
+        chosen = list(logos.VARIANTS) if which == "all" else [which]
+        old = self.staging.logo("emblem", comp.id)
+        sources = self._logo_sources(old) if old else {}
+        sources.update({v: path for v in chosen})
+        files = logos.make_emblem({v: image for v in chosen}, comp.id)
+        source = "\n".join(f"{v}={p}" for v, p in sorted(sources.items()))
+        self.staging.add_logo(comp.id, comp.name, "emblem", files, source)
+        self._changes_made()
+
+    def keep_logo(self) -> None:
+        self.staging.remove(self.comp_id, "emblem")
+        self._changes_made()
 
     # --- changes -----------------------------------------------------------------------------------------------------
 
@@ -291,7 +419,7 @@ class MainWindow(QMainWindow):
         self._changes_made()
 
     def discard_changes(self) -> None:
-        if self._ask(f"Discard {_kits(len(self.staging.changes))} waiting for Deploy?"):
+        if self._ask(f"Discard {_waiting(self.staging.changes)} waiting for Deploy?"):
             self.staging.clear()
             self._changes_made()
 
@@ -300,8 +428,9 @@ class MainWindow(QMainWindow):
         listing = "\n".join(
             f"{c.team_name}: {slot_name(c.slot)}{' (whole kit)' if c.kind == 'kit' else ''}" for c in changes
         )
+        what = _waiting(changes)
         question = (
-            f"Install {_kits(len(changes))} in the game?\n\n{listing}\n\n"
+            f"Install {what} in the game?\n\n{listing}\n\n"
             "The game must be closed. Changes > Undo last deploy puts back the files as they were."
         )
         if not self._ask(question):
@@ -318,11 +447,11 @@ class MainWindow(QMainWindow):
         )
         if done:
             them = "it" if done.changes == 1 else "them"
-            self._after_game_change(f"Deployed {_kits(done.changes)}. Restart the game to see {them}.")
+            self._after_game_change(f"Deployed {what}. Restart the game to see {them}.")
 
     def undo_deploy(self) -> None:
         last = deploy.history(settings.home())[0]
-        what = _kits(last.changes) if last.changes else "re-applied links"
+        what = _count(last.changes - last.logos, last.logos) if last.changes else "re-applied links"
         if not self._ask(f"Undo the last deploy ({what})? The files it changed are put back as they were."):
             return
         undone = self._game_op(
@@ -365,7 +494,10 @@ class MainWindow(QMainWindow):
 
     def _changes_made(self) -> None:
         self._update_changes()
-        self.show_team(self.team_id)
+        if self.pages.currentWidget() is self.comp_page:
+            self.show_competition(self.comp_id)
+        else:
+            self.show_team(self.team_id)
 
     def _update_changes(self) -> None:
         """menu, status bar and banner follow the staging area and the game"""
@@ -377,7 +509,7 @@ class MainWindow(QMainWindow):
         self.relink_action.setEnabled(open_game)
         self.import_folder_action.setEnabled(open_game)
         self.import_zip_action.setEnabled(open_game)
-        self.pending_label.setText(f"{_kits(waiting)} waiting for Deploy")
+        self.pending_label.setText(f"{_waiting(self.staging.changes)} waiting for Deploy")
         self.pending_label.setVisible(waiting > 0)
         state = deploy.status(self.game_dir) if open_game else deploy.Status(False, False)
         lost = [name for name, gone in (("map.txt", state.block_lost), ("sider.ini", state.root_lost)) if gone]

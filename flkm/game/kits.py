@@ -20,7 +20,7 @@ from flkm.game.kitmap import KitMap
 TEXTURES = "Asset/model/character/uniform/texture/#windx11/"
 GAME_SLOTS = ("p1", "p2", "p3", "p4", "p5", "g1", "g2")
 _SLOT = re.compile(r"^[pg]\d+$")
-_NAMES = {"p1": "Home", "p2": "Away", "p3": "Third", "g1": "Goalkeeper"}
+_NAMES = {"p1": "Home", "p2": "Away", "p3": "Third", "g1": "Goalkeeper", "crest": "Crest", "emblem": "Logo"}
 
 
 def slot_name(slot: str) -> str:
@@ -44,14 +44,12 @@ class Kit:
     @property
     def folder(self) -> Path:
         """the folder of the texture file, or of the CPK that holds it"""
-        loose = self.file or self.found.file
-        return loose.parent if loose else self.found.archive.path.parent
+        return self.file.parent if self.file else self.found.folder
 
     @property
     def file_name(self) -> str:
         """the texture's file name in its folder ("<cpk> › <texture>" for a texture in a CPK)"""
-        loose = self.file or self.found.file
-        return loose.name if loose else f"{self.found.archive.path.name} › {self.found.path.rsplit('/', 1)[-1]}"
+        return self.file.name if self.file else self.found.file_name
 
     def texture(self) -> ftex.Ftex:
         return ftex.parse(self.file.read_bytes() if self.file else self.found.read())

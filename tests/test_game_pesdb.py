@@ -148,3 +148,13 @@ def test_record_without_any_name_is_left_out():
 def test_tables_of_a_wrong_size_are_refused(reader, record, size):
     with pytest.raises(pesdb.PesdbError, match=str(size)):
         reader(wesys(record + b"\0"))
+
+
+def test_regulation_records_with_the_low_byte_of_their_competition_id():
+    data = regulation_record("ITALY_D1_LEAGUE", "Serie A TIM", low_id=10) + regulation_record(
+        "UEFA Conference League", "UEFA Conference League", low_id=174
+    )
+    assert pesdb.regulation_records(data) == [
+        (10, "ITALY_D1_LEAGUE", "Serie A TIM"),
+        (174, "UEFA Conference League", "UEFA Conference League"),
+    ]

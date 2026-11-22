@@ -15,8 +15,18 @@ Versions follow semver (`MAJOR.MINOR.PATCH`); the release zip is `FLKitsManager_
   federations from Country.bin.
 - Window: choose the game folder (remembered, or `--game`), team list by federation, country and league with search,
   team page with each kit folded (front and back as in the game) or unrolled, and where it comes from.
+- Logos (M5): the team page shows the team's crest with Replace crest… (a PNG, DDS, JPEG or WebP picture made into
+  the game's three sizes, 128, 256 and 512); a Competitions tab lists the game's competitions by federation and
+  country, and each competition page shows its logo's three variants (normal, dark, white) on light and dark
+  backgrounds, with Replace logo… for all of them or Replace… for one. Logos wait for Deploy like kits and go to
+  `livecpk\FLKitsManager`; Undo puts them back. The competitions Mod Studio adds are named too: its cups and
+  supercups by the recipe of their league, every competition of a Mod Studio league (league cup, play-offs) in the
+  country of its league, the others (e.g. FL_UECL, UEFA Conference League) by
+  the name Mod Studio writes in their regulation records.
 - Team page: the folder of the team's kits once at the top, with Open folder; each kit shows only its file name in
-  that folder (`<cpk> › <file>` for a kit inside a game archive).
+  that folder (`<cpk> › <file>` for a kit inside a game archive). Above it, the folder of the crest the same way
+  (Crest in…, with its own Open folder); the crest shows only its file name. The competition page does the same
+  for its logo (Logo in…, Open folder; each variant shows its file name in that folder).
 - National teams show under their country as "National team" instead of "No league".
 - View menu: larger, smaller or default text size (Ctrl++, Ctrl+-, Ctrl+0), remembered.
 - File → Reload (F5): reads the game again after it changed, keeping the search and the open team.

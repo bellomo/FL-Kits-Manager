@@ -21,6 +21,16 @@ class Found:
     def read(self) -> bytes:
         return self.file.read_bytes() if self.file else self.archive.read(self.path)
 
+    @property
+    def folder(self) -> Path:
+        """the folder of the loose file, or of the CPK that holds it"""
+        return self.file.parent if self.file else self.archive.path.parent
+
+    @property
+    def file_name(self) -> str:
+        """the file's name in that folder ("<cpk> › <file>" for a file in a CPK)"""
+        return self.file.name if self.file else f"{self.archive.path.name} › {self.path.rsplit('/', 1)[-1]}"
+
 
 def _windows(p: Path) -> str:
     return str(PureWindowsPath(p))

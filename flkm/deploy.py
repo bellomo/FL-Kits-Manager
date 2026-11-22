@@ -6,6 +6,7 @@ Where a kit goes:
   team to the copy (the kitserver takes the last line of a team);
 - otherwise (kits from the game files): the texture goes to livecpk/FLKitsManager/<game path>, and that root is put
   first in sider.ini (the first root wins).
+Crests and competition logos always go to livecpk/FLKitsManager/<game path>.
 
 Nothing is written while the game runs. map.txt and sider.ini get a <file>.bak-<date> copy before their first change
 of the day. Each deploy is recorded in <app data>/deploys/<id>: manifest.json lists every file it wrote and whether
@@ -47,8 +48,9 @@ class NothingToUndo(DeployError):
 @dataclass(frozen=True)
 class Deployment:
     id: str
-    changes: int  # staged kits it installed (0 for a relink)
+    changes: int  # staged kits and logos it installed (0 for a relink)
     files: int  # files it wrote
+    logos: int = 0  # how many of the changes were logos
 
 
 @dataclass(frozen=True)
@@ -194,7 +196,10 @@ def _install(paths: _Paths, journal: _Journal, staging: Staging) -> None:
     sure that every texture for a kitserver team has a kit to go into"""
     kit_map = kitmap.load(paths.map)
     made: set[Path] = set()  # kit folders this deploy makes from nothing (it keeps their kit lists)
-    for change in sorted(staging.changes, key=lambda c: c.kind != "kit"):
+    for change in (c for c in staging.changes if c.kind == "logo"):
+        for path, data in staging.logo_files(change).items():
+            journal.write(paths.app_root / path, data)
+    for change in sorted((c for c in staging.changes if c.kind != "logo"), key=lambda c: c.kind != "kit"):
         folder = paths.app_folder(change.team_id)
         if folder is None:
             source = _kit_folder(paths, kit_map, change.team_id)
@@ -218,7 +223,7 @@ def _install(paths: _Paths, journal: _Journal, staging: Staging) -> None:
 def _check_slots(paths: _Paths, staging: Staging) -> None:
     """refuses, before anything is written, a texture for a kit that the team's kitserver folder will not have"""
     kit_map = kitmap.load(paths.map)
-    for change in (c for c in staging.changes if c.kind != "kit"):
+    for change in (c for c in staging.changes if c.kind == "texture"):
         folder = _kit_folder(paths, kit_map, change.team_id)
         new_kits = any(c.kind == "kit" for c in staging.changes if c.team_id == change.team_id)
         if folder is None and not new_kits:
@@ -238,7 +243,7 @@ def _new_id() -> str:
 def _finish(home: Path, journal: _Journal, deploy_id: str, changes: list[dict]) -> Deployment:
     manifest = {"id": deploy_id, "changes": changes, "files": journal.files}
     (journal.folder / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
-    return Deployment(deploy_id, len(changes), len(journal.files))
+    return Deployment(deploy_id, len(changes), len(journal.files), sum(c.get("kind") == "logo" for c in changes))
 
 
 def deploy(
@@ -260,7 +265,8 @@ def deploy(
     _install(paths, journal, staging)
     _link(paths, journal, today or datetime.date.today())
     changes = [
-        {"team_id": c.team_id, "team_name": c.team_name, "slot": c.slot, "source": c.source} for c in staging.changes
+        {"team_id": c.team_id, "team_name": c.team_name, "slot": c.slot, "kind": c.kind, "source": c.source}
+        for c in staging.changes
     ]
     result = _finish(home, journal, deploy_id, changes)
     staging.clear()
@@ -300,7 +306,8 @@ def history(home: Path) -> list[Deployment]:
     out = []
     for d in sorted(folder.iterdir(), reverse=True) if folder.is_dir() else []:
         m = json.loads((d / "manifest.json").read_text(encoding="utf-8"))
-        out.append(Deployment(m["id"], len(m["changes"]), len(m["files"])))
+        logo_count = sum(c.get("kind") == "logo" for c in m["changes"])
+        out.append(Deployment(m["id"], len(m["changes"]), len(m["files"]), logo_count))
     return out
 
 

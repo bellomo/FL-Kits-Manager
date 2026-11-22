@@ -315,3 +315,37 @@ def test_history_lists_deploys_newest_first(game, home, tmp_path):
     first = run(game, home, stage(home, tmp_path, (186, "Bologna FC", "p1", NEW)))
     second = run(game, home, stage(home, tmp_path, (186, "Bologna FC", "g1", NEW), (5, "New Club", "p1", NEW)))
     assert [(h.id, h.changes) for h in deploy.history(home)] == [(second.id, 2), (first.id, 1)]
+
+
+# --- logos -----------------------------------------------------------------------------------------------------------
+
+CREST = {f"common/render/symbol/flag/e_000186_r{s}.png": bytes([n]) * 10 for n, s in enumerate(("", "_l", "_ll"))}
+
+
+def test_a_crest_goes_to_the_app_root_and_undo_removes_it(game, home):
+    make_game(game)
+    s = Staging(home / "staging")
+    s.add_logo(186, "Bologna FC", "crest", CREST, "C:\\logos\\bologna.png")
+    s.add(73947, "Aalborg Boldspilklub", "p2", _texture(home))  # a kit in the same deploy
+    result = run(game, home, s)
+    root = sider(game) / "livecpk" / "FLKitsManager"
+    assert {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*.png")} == CREST
+    assert sider_ini.parse((sider(game) / "sider.ini").read_text()).cpk_roots[0] == ".\\livecpk\\FLKitsManager"
+    assert result.changes == 2 and app_kit(game, "p2", "u73947p2.ftex").read_bytes() == NEW
+    deploy.undo(game, home, game_running=lambda: False)
+    assert not root.exists()
+
+
+def test_a_logo_is_installed_without_a_kit_slot_check(game, home):
+    make_game(game)
+    s = Staging(home / "staging")
+    s.add_logo(73947, "Aalborg Boldspilklub", "crest", CREST, "x.png")  # a kitserver team: no kit needed
+    run(game, home, s)
+    assert (sider(game) / "livecpk" / "FLKitsManager" / "common/render/symbol/flag/e_000186_r.png").is_file()
+
+
+def _texture(home):
+    p = home / "in.ftex"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(NEW)
+    return p

@@ -2,13 +2,14 @@
 line or the settings, else the user chooses it; the chosen folder and the kit view are remembered."""
 
 import zipfile
+from pathlib import PurePath
 
 import pytest
 from PIL import Image
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox
 
 import flkm
-from conftest import build_ftex, dxt5_block, team_record, wesys
+from conftest import build_ftex, competition_record, dxt5_block, team_record, wesys
 from flkm import deploy, main_window, settings
 from flkm.game import ftex, process
 from flkm.import_dialog import ImportDialog
@@ -576,3 +577,197 @@ def test_quit_action_closes_the_window(qtbot):
 
 def test_window_module_names_the_app():
     assert main_window.APP_NAME == "FL Kits Manager"
+
+
+# --- crests ----------------------------------------------------------------------------------------------------------
+
+FLAG = "common/render/symbol/flag/"
+
+
+def crest_game(game):
+    """the kit game with Bologna's crest (256 px) in the livecpk root"""
+    kit_game(game)
+    flag = game / "SiderAddons" / "livecpk" / "_World" / FLAG
+    flag.mkdir(parents=True)
+    Image.new("RGBA", (256, 256), (200, 0, 0, 255)).save(flag / "e_000186_r_l.png")
+    return game
+
+
+def test_the_team_page_shows_the_crest_the_game_uses(qtbot, game):
+    w = make_window(qtbot, game_dir=crest_game(game))
+    w.tree.select_team(186)
+    assert not w.page.crest.pixmap().isNull()
+    assert w.page.crest_source.text() == "e_000186_r_l.png"
+    w.tree.select_team(98)
+    assert w.page.crest.text() == "No crest" and w.page.crest_source.text() == "No crest in the game files"
+
+
+def test_replace_the_crest_waits_for_deploy_then_deploy_installs_it(qtbot, game, tmp_path, dialogs, closed_game):
+    w = make_window(qtbot, game_dir=crest_game(game))
+    w.tree.select_team(186)
+    src = tmp_path / "bologna.png"
+    Image.new("RGBA", (300, 300), (0, 0, 200, 255)).save(src)
+    dialogs.file = str(src)
+    w.page.replace_crest_button.click()
+    assert w.page.crest_source.text() == "New crest, not deployed yet: bologna.png"
+    assert w.page.crest_source.toolTip() == str(src) and w.page.keep_crest_button.isVisibleTo(w.page)
+    assert w.pending_label.text() == "1 logo waiting for Deploy" and w.page.cards[0].kit.slot == "p1"
+    w.deploy_action.trigger()
+    assert "Bologna FC: Crest" in dialogs.asked[-1] and "Install 1 logo in the game?" in dialogs.asked[-1]
+    app = game / "SiderAddons" / "livecpk" / "FLKitsManager" / FLAG
+    assert sorted(p.name for p in app.iterdir()) == ["e_000186_r.png", "e_000186_r_l.png", "e_000186_r_ll.png"]
+    assert w.statusBar().currentMessage() == "Deployed 1 logo. Restart the game to see it."
+    assert w.page.crest_source.text() == "e_000186_r_ll.png"
+    dialogs.answers = [False]
+    w.undo_action.trigger()
+    assert dialogs.asked[-1] == "Undo the last deploy (1 logo)? The files it changed are put back as they were."
+
+
+def test_kits_and_logos_waiting_are_counted_apart(qtbot, game, tmp_path, dialogs):
+    w = make_window(qtbot, game_dir=crest_game(game))
+    w.tree.select_team(186)
+    dialogs.file = str(new_texture(tmp_path))
+    w.page.cards[0].replace_button.click()
+    src = tmp_path / "bologna.png"
+    Image.new("RGBA", (64, 64)).save(src)
+    dialogs.file = str(src)
+    w.page.replace_crest_button.click()
+    assert w.pending_label.text() == "1 kit and 1 logo waiting for Deploy"
+    dialogs.answers = [False]
+    w.discard_action.trigger()
+    assert dialogs.asked[-1] == "Discard 1 kit and 1 logo waiting for Deploy?"
+
+
+def test_keep_the_current_crest(qtbot, game, tmp_path, dialogs):
+    w = make_window(qtbot, game_dir=crest_game(game))
+    w.tree.select_team(186)
+    src = tmp_path / "bologna.png"
+    Image.new("RGBA", (64, 64)).save(src)
+    dialogs.file = str(src)
+    w.page.replace_crest_button.click()
+    w.page.keep_crest_button.click()
+    assert w.staging.changes == [] and w.page.crest_source.text() == "e_000186_r_l.png"
+
+
+def test_replace_crest_cancelled_or_with_a_file_that_is_not_a_picture(qtbot, game, tmp_path, dialogs):
+    w = make_window(qtbot, game_dir=crest_game(game))
+    w.tree.select_team(186)
+    w.page.replace_crest_button.click()
+    bad = tmp_path / "bad.png"
+    bad.write_bytes(b"nope")
+    dialogs.file = str(bad)
+    w.page.replace_crest_button.click()
+    assert w.staging.changes == [] and "bad.png cannot be read as a picture" in dialogs.warnings[0]
+
+
+# --- competition logos -----------------------------------------------------------------------------------------------
+
+EMB = "common/render/symbol/emblemLc/"
+
+
+def comp_game(game):
+    """the crest game with the Coppa Italia (16) and its normal logo (256 px) in the livecpk root"""
+    crest_game(game)
+    root = game / "SiderAddons" / "livecpk" / "_World"
+    (root / "common/etc/pesdb/Competition.bin").write_bytes(wesys(competition_record(16, "ITALY_D1_CUP")))
+    (root / EMB).mkdir(parents=True)
+    Image.new("RGBA", (256, 256), (0, 160, 0, 255)).save(root / EMB / "emb_0016_l.png")
+    return game
+
+
+def coppa(qtbot, game):
+    w = make_window(qtbot, game_dir=comp_game(game))
+    w.sides.setCurrentWidget(w.comp_tree)
+    assert w.comp_tree.select(16)
+    return w
+
+
+def test_teams_and_competitions_tabs(qtbot, game):
+    w = make_window(qtbot, game_dir=comp_game(game))
+    assert [w.sides.tabText(i) for i in range(w.sides.count())] == ["Teams", "Competitions"]
+    assert w.comp_tree.tree.topLevelItem(0).text(0) == "International (1)"
+
+
+def test_the_competition_page_shows_its_logos(qtbot, game):
+    w = coppa(qtbot, game)
+    assert w.pages.currentWidget() is w.comp_page and w.comp_page.title.text() == "ITALY_D1_CUP"
+    normal, dark, _ = w.comp_page.cards
+    assert normal.source.text() == "emb_0016_l.png" and not normal.light.pixmap().isNull()
+    assert w.comp_page.folder_label.text() == str(game / "SiderAddons" / "livecpk" / "_World" / EMB)
+    assert dark.source.text() == "Not in the game files"
+
+
+def test_replace_the_whole_logo_then_one_variant_then_deploy(qtbot, game, tmp_path, dialogs, closed_game):
+    w = coppa(qtbot, game)
+    src = tmp_path / "coppa.png"
+    Image.new("RGBA", (400, 400), (0, 0, 200, 255)).save(src)
+    dialogs.file = str(src)
+    w.comp_page.replace_all_button.click()
+    assert [c.source.text() for c in w.comp_page.cards] == ["New logo, not deployed yet: coppa.png"] * 3
+    assert w.comp_page.keep_button.isVisibleTo(w.comp_page) and w.comp_page.cards[0].source.toolTip() == str(src)
+    white = tmp_path / "white.png"
+    Image.new("RGBA", (100, 100), (255, 255, 255, 255)).save(white)
+    dialogs.file = str(white)
+    w.comp_page.cards[2].replace_button.click()
+    assert w.comp_page.cards[2].source.text() == "New logo, not deployed yet: white.png"
+    assert w.comp_page.cards[0].source.text() == "New logo, not deployed yet: coppa.png"
+    assert w.pending_label.text() == "1 logo waiting for Deploy"
+    w.deploy_action.trigger()
+    assert "ITALY_D1_CUP: Logo" in dialogs.asked[-1]
+    app = game / "SiderAddons" / "livecpk" / "FLKitsManager" / EMB
+    assert len(list(app.iterdir())) == 6
+    assert w.pages.currentWidget() is w.comp_page  # the page stays after the game is read again
+    assert w.comp_page.cards[1].source.text() == "emb_0016_b_ll.png"
+
+
+def test_keep_the_current_logo_and_errors(qtbot, game, tmp_path, dialogs):
+    w = coppa(qtbot, game)
+    w.comp_page.replace_all_button.click()  # cancelled
+    bad = tmp_path / "bad.png"
+    bad.write_bytes(b"nope")
+    dialogs.file = str(bad)
+    w.comp_page.cards[0].replace_button.click()
+    assert w.staging.changes == [] and "cannot be read as a picture" in dialogs.warnings[0]
+    src = tmp_path / "coppa.png"
+    Image.new("RGBA", (40, 40)).save(src)
+    dialogs.file = str(src)
+    w.comp_page.cards[1].replace_button.click()
+    assert [c.source.text() for c in w.comp_page.cards][:2] == [
+        "emb_0016_l.png",
+        "New logo, not deployed yet: coppa.png",
+    ]
+    w.comp_page.keep_button.click()
+    assert w.staging.changes == [] and not w.comp_page.keep_button.isVisibleTo(w.comp_page)
+
+
+def test_reload_keeps_the_open_competition(qtbot, game):
+    w = coppa(qtbot, game)
+    w.reload_action.trigger()
+    assert w.pages.currentWidget() is w.comp_page and w.comp_page.title.text() == "ITALY_D1_CUP"
+    w.comp_tree.search.setText("zzz")  # the search hides it
+    w.reload_action.trigger()
+    assert w.pages.currentWidget() is w.comp_page and w.comp_page.title.text() == "ITALY_D1_CUP"
+
+
+def test_the_crest_folder_is_shown_once_and_the_crest_only_by_its_file_name(qtbot, game):
+    w = make_window(qtbot, game_dir=crest_game(game))
+    w.tree.select_team(186)
+    assert w.page.crest_source.text() == "e_000186_r_l.png"
+    assert w.page.crest_folder_label.text() == str(game / "SiderAddons" / "livecpk" / "_World" / FLAG)
+
+
+def test_logo_variants_in_different_folders_show_their_path_from_the_common_folder(qtbot, game):
+    comp_game(game)
+    other = game / "SiderAddons" / "livecpk" / "FLKitsManager" / EMB
+    other.mkdir(parents=True)
+    Image.new("RGBA", (256, 256)).save(other / "emb_0016_w_l.png")
+    with (game / "SiderAddons" / "sider.ini").open("a", encoding="utf-8") as ini:
+        ini.write('cpk.root = ".\\livecpk\\FLKitsManager"\n')
+    w = make_window(qtbot, game_dir=game)
+    w.sides.setCurrentWidget(w.comp_tree)
+    assert w.comp_tree.select(16)
+    assert w.comp_page.folder_label.text() == str(game / "SiderAddons" / "livecpk")
+    normal, _, white = w.comp_page.cards
+    assert normal.source.text() == str(PurePath("_World", EMB, "emb_0016_l.png"))
+    assert white.source.text() == str(PurePath("FLKitsManager", EMB, "emb_0016_w_l.png"))
+    assert white.source.toolTip() == str(other / "emb_0016_w_l.png")

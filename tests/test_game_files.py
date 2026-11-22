@@ -80,3 +80,13 @@ def test_sider_settings_are_exposed(game, make_cpk):
     gf = files.GameFiles(game)
     assert gf.sider.world == "_World"
     assert gf.sider_folder == game / "SiderAddons"
+
+
+def test_folder_and_file_name_of_a_found_file(game, make_cpk):
+    sider = setup(game, make_cpk)
+    put(sider / "livecpk" / "_World" / KIT, b"loose")
+    (game / "Data" / "dt.cpk").write_bytes(make_cpk("dt.cpk", {TEAM: b"base"}).read_bytes())
+    gf = files.GameFiles(game)
+    loose, packed = gf.find(KIT), gf.find(TEAM)
+    assert (loose.folder, loose.file_name) == ((sider / "livecpk" / "_World" / KIT).parent, "u0186p1.ftex")
+    assert (packed.folder, packed.file_name) == (game / "Data", "dt.cpk › Team.bin")  # the folder of the CPK

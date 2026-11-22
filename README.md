@@ -48,8 +48,8 @@ A Windows app to manage the kits and logos installed in **SP Football Life 2027*
 The app ships no kits and no logos: it reads what is installed in your game and edits it.
 
 > Status: early development: browsing teams and kits, importing whole kits from kit packs (folder or zip), replacing
-> a kit's texture with an `.ftex`, `.png` or `.dds` file, Deploy and Undo work; logos come next. See the
-> [roadmap](#roadmap).
+> a kit's texture with an `.ftex`, `.png` or `.dds` file, team crests and competition logos, Deploy and Undo work;
+> kits from photos come next. See the [roadmap](#roadmap).
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -117,6 +117,15 @@ changes drops them. Changes → **Deploy to the game** (Ctrl+D) installs them:
   Changes → **Undo last deploy** puts it back, one deploy at a time;
 - the game must be closed (the app checks; when it cannot tell, it asks).
 
+**Logos.** The team page shows the team's crest next to its name; **Replace crest…** takes a picture (PNG, DDS,
+JPEG or WebP; one that is not square is centred on a transparent square) and makes the three sizes the game uses
+(128, 256 and 512 pixels, `common\render\symbol\flag\e_<id>_r*.png`). The **Competitions** tab lists the game's
+competitions by federation and country; a competition's page shows the three variants of its logo (normal, dark for
+light backgrounds, white for dark backgrounds; `common\render\symbol\emblemLc\emb_<id>*.png`, 256 and 512 pixels) on
+a light and a dark background. **Replace logo…** uses one picture for all three variants, **Replace…** under a
+variant changes only that one. Logos wait for Deploy like kits, then go to `livecpk\FLKitsManager`, which comes
+before the other roots in `sider.ini`; Undo puts them back.
+
 A Mod Studio Build rewrites `map.txt` and can drop the app's block (another tool can do the same to `sider.ini`): the
 app then shows a bar with **Re-apply**, also in Changes → Re-apply links to the app's kits.
 
@@ -172,7 +181,9 @@ Development rules (test-driven, 100% line and branch coverage, no network in tes
 | `flkm/cli.py` | Command line of the exe (`--game <folder>`, `--smoke-test`) |
 | `flkm/main_window.py` | Main window: game folder, team list, team page, Changes menu (Deploy, Undo, Re-apply) |
 | `flkm/team_tree.py` | Team list: federation > country > league > team, search by name or id |
-| `flkm/team_page.py` | Team page: details and kits, folded or unrolled, Replace… and kits waiting for Deploy |
+| `flkm/team_page.py` | Team page: crest, details and kits, folded or unrolled, Replace… and kits waiting for Deploy |
+| `flkm/competition_tree.py` | Competition list: federation > country > competition, search by name, code or id |
+| `flkm/competition_page.py` | Competition page: the three variants of its logo on light and dark, Replace logo… |
 | `flkm/import_dialog.py` | Import dialog: the pack's team folders, the game team of each one, Choose team… |
 | `flkm/pack.py` | Kit packs (folder or zip): team folders, their kits, map lines; matching with the game's teams |
 | `flkm/staging.py` | Kits chosen to replace the game's (textures or whole kits), kept until Deploy (`%APPDATA%\FLKitsManager\staging`) |
@@ -191,6 +202,7 @@ Development rules (test-driven, 100% line and branch coverage, no network in tes
 | `flkm/game/ftex.py` | FTEX textures (DXT1, DXT5, BC7) decoded to images |
 | `flkm/game/ftex_write.py` | FTEX textures written from blocks, images (DXT5 with mips) and DDS files; kit textures |
 | `flkm/game/kits.py` | Which kits a team wears (kitserver folder or game files) |
+| `flkm/game/logos.py` | Team crests and competition logos: their game files, the one the game uses, new ones from a picture |
 | `tests/` | One test file per module, `test_rule_*.py` for repository rules |
 | `scripts/build.ps1` | Builds the one-folder exe and smoke-tests it (local hook and release) |
 | `scripts/hooks/post-commit` | Local build after every commit |

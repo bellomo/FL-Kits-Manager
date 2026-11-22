@@ -157,3 +157,39 @@ def test_damaged_staging_file_reads_as_empty(home):
     assert Staging(home / "staging").changes == []
     (home / "staging" / "staging.json").write_text('{"changes": [{"team_id": 1}]}', encoding="utf-8")
     assert Staging(home / "staging").changes == []
+
+
+# --- logos -----------------------------------------------------------------------------------------------------------
+
+FLAG = "common/render/symbol/flag/"
+EMB = "common/render/symbol/emblemLc/"
+
+
+def test_a_crest_is_kept_with_its_files_apart_from_the_kits(home, tmp_path):
+    s = Staging(home / "staging")
+    kit = s.add(186, "Bologna FC", "p1", texture(tmp_path))
+    c = s.add_logo(
+        186, "Bologna FC", "crest", {FLAG + "e_000186_r.png": b"a", FLAG + "e_000186_r_l.png": b"b"}, "x.png"
+    )
+    assert (c.kind, c.slot, c.source) == ("logo", "crest", "x.png")
+    assert s.for_team(186) == {"p1": kit}  # the team's kits only
+    assert s.logo("crest", 186) == c and s.logo("crest", 98) is None
+    assert Staging(home / "staging").logo_files(c) == {FLAG + "e_000186_r.png": b"a", FLAG + "e_000186_r_l.png": b"b"}
+
+
+def test_a_new_logo_keeps_the_staged_files_it_does_not_replace(home):
+    s = Staging(home / "staging")
+    s.add_logo(17, "Serie A", "emblem", {EMB + "emb_0017_l.png": b"normal", EMB + "emb_0017_w_l.png": b"white"}, "a")
+    c = s.add_logo(17, "Serie A", "emblem", {EMB + "emb_0017_w_l.png": b"new white"}, "b")
+    assert s.changes == [c] and c.source == "b"
+    assert s.logo_files(c) == {EMB + "emb_0017_l.png": b"normal", EMB + "emb_0017_w_l.png": b"new white"}
+    s.remove(17, "emblem")
+    assert s.changes == [] and not s.path(c).exists()
+
+
+def test_logo_files_stay_in_the_game_folders_of_logos(home):
+    s = Staging(home / "staging")
+    for bad in ("../x.png", "common/render/symbol/../../x.png", "C:/x.png", "common/etc/x.png"):
+        with pytest.raises(ValueError, match="Not a logo file"):
+            s.add_logo(186, "Bologna FC", "crest", {bad: b"x"}, "x.png")
+    assert s.changes == []

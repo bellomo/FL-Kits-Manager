@@ -216,10 +216,12 @@ def entry_record(team_id: int, comp_id: int, position: int = 0) -> bytes:
     return struct.pack("<III", team_id, 0, (comp_id & 0xFF) | position << 8 | (comp_id >> 8) << 24)
 
 
-def regulation_record(code: str, english: str, other: str = "") -> bytes:
+def regulation_record(code: str, english: str, other: str = "", low_id: int = 0) -> bytes:
     """a 2352-byte CompetitionRegulation.bin record: 20-byte header, names in 115-byte language slots (9 from 20, the
-    English one at 480; more from 1087), the competition's code name at 1055 (32 bytes)"""
+    English one at 480; more from 1087), the competition's code name at 1055 (32 bytes); the low byte of the
+    competition's id at 8"""
     r = bytearray(2352)
+    r[8] = low_id
     for k in range(9):
         name = english if k == 4 else ("" if k == 3 else other)
         r[20 + 115 * k : 20 + 115 * (k + 1)] = name.encode().ljust(115, b"\0")

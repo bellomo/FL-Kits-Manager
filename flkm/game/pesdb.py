@@ -120,15 +120,24 @@ def competition_entries(data: bytes) -> list[Entry]:
     return out
 
 
-def regulation_names(data: bytes) -> dict[str, str]:
-    """code name -> name as the game shows it (English, else the first language that has one); the first record of a
-    code wins (a competition has a record per stage)"""
-    out: dict[str, str] = {}
+def regulation_records(data: bytes) -> list[tuple[int, str, str]]:
+    """(low byte of the competition id, code name, name as the game shows it) of each record that has a name (English,
+    else the first language that has one). Mod Studio writes its competition's name as the code name."""
+    out = []
     for r in _records(data, REGULATION_RECORD, "CompetitionRegulation.bin"):
         slots = [_text(r, 20 + 115 * k, 115) for k in range(9)] + [_text(r, 1087 + 115 * k, 115) for k in range(11)]
         name = slots[4] or next((s for s in slots if s), None)
         if name:
-            out.setdefault(_text(r, 1055, 32), name)
+            out.append((r[8], _text(r, 1055, 32), name))
+    return out
+
+
+def regulation_names(data: bytes) -> dict[str, str]:
+    """code name -> name as the game shows it; the first record of a code wins (a competition has a record per
+    stage)"""
+    out: dict[str, str] = {}
+    for _, code, name in regulation_records(data):
+        out.setdefault(code, name)
     return out
 
 

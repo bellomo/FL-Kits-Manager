@@ -40,3 +40,19 @@ def test_compact_json_and_escaped_names(tmp_path):
 def test_missing_recipe_reads_as_empty(tmp_path):
     assert recipe.league_countries(tmp_path / "none.json") == {}
     assert recipe.league_countries(None) == {}
+
+
+def test_cups_of_each_league(tmp_path):
+    p = tmp_path / "w.json"
+    lg = [
+        {"name": "A-League Men", "country": "Australia", "clubs": [1, 2], "cup": True, "cup_name": "Australia Cup"},
+        {"name": "Bahraini PL", "country": "Bahrain", "cup_name": "King's Cup", "supercup_name": "Bahraini Super Cup"},
+        {"name": "1. division", "country": "Denmark"},
+    ]
+    p.write_text(json.dumps({"leagues": lg, "edits": {"x": {"cup_name": "not a league"}}}, indent=1), encoding="utf-8")
+    assert recipe.leagues(p) == [
+        recipe.League("A-League Men", "Australia", "Australia Cup", None),
+        recipe.League("Bahraini PL", "Bahrain", "King's Cup", "Bahraini Super Cup"),
+        recipe.League("1. division", "Denmark", None, None),
+    ]
+    assert recipe.leagues(None) == []
