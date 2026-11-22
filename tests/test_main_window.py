@@ -402,6 +402,18 @@ def test_links_lost_after_a_mod_studio_build_are_shown_and_reapplied(qtbot, game
     assert not w.links_banner.isVisibleTo(w) and "FLKitsManager" in ini.read_text(encoding="utf-8")
 
 
+def test_undo_and_reapply_while_the_game_runs_change_nothing(qtbot, game, tmp_path, dialogs, closed_game):
+    w = bologna(qtbot, game)
+    dialogs.file = str(new_texture(tmp_path))
+    w.page.cards[0].replace_button.click()
+    w.deploy_action.trigger()
+    closed_game["running"] = True
+    w.undo_action.trigger()
+    w.relink_action.trigger()
+    assert app_texture(game).read_bytes() == NEW and len(deploy.history(settings.home())) == 1
+    assert dialogs.warnings == ["SP Football Life 2027 is running: close the game first."] * 2
+
+
 def test_an_error_while_deploying_is_shown(qtbot, game, tmp_path, dialogs, closed_game, monkeypatch):
     w = bologna(qtbot, game)
     dialogs.file = str(new_texture(tmp_path))
