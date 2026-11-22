@@ -3,8 +3,10 @@ a slot and a copy of the texture; a second change for the same slot replaces the
 are taken."""
 
 import pytest
+from PIL import Image
 
 from conftest import build_ftex, dxt5_block
+from flkm.game import ftex
 from flkm.game.ftex import FtexError
 from flkm.staging import Staging
 
@@ -54,6 +56,18 @@ def test_a_file_that_is_not_a_texture_is_refused(home, tmp_path):
     with pytest.raises(FtexError):
         s.add(186, "Bologna FC", "p1", bad)
     assert s.changes == []
+
+
+def test_a_png_is_staged_as_an_ftex_with_the_header_of_the_kit_it_replaces(home, tmp_path):
+    src = tmp_path / "home.png"
+    Image.new("RGBA", (256, 256), (0, 0, 255, 255)).save(src)
+    header = bytearray(build_ftex(4, 4, 4, [dxt5_block(0)])[:0x40])
+    header[0x30:0x34] = b"\xcd" * 4
+    s = Staging(home / "staging")
+    c = s.add(186, "Bologna FC", "p1", src, header=bytes(header))
+    assert c.file == "u186p1.ftex" and c.source == str(src)
+    data = s.path(c).read_bytes()
+    assert ftex.parse(data).width == 256 and data[0x30:0x34] == b"\xcd" * 4
 
 
 def test_remove_a_change(home, tmp_path):

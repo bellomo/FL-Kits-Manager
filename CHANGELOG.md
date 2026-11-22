@@ -28,5 +28,7 @@ Versions follow semver (`MAJOR.MINOR.PATCH`); the release zip is `FLKitsManager_
   packs fans share; each team folder is matched with a game team by the pack's map id checked by name, or by name;
   a dialog shows the matches, ticks the sure ones and lets the user choose the team by id or name. Kits the team did
   not have show as new cards; a team with kits from the game files gets a kitserver folder with the pack's kits.
+- Replace… also takes `.png` and `.dds` images (square, 256 to 4096 pixels): they become an FTEX texture (DXT5 with
+  every mip, or the DDS's own blocks when it has every mip) with the header of the kit they replace.
 - A bar (and Changes → Re-apply links) when a Mod Studio Build or another tool removed the app's block in `map.txt` or
   its root in `sider.ini`.

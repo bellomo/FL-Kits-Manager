@@ -48,7 +48,8 @@ A Windows app to manage the kits and logos installed in **SP Football Life 2027*
 The app ships no kits and no logos: it reads what is installed in your game and edits it.
 
 > Status: early development: browsing teams and kits, importing whole kits from kit packs (folder or zip), replacing
-> a kit's texture with an `.ftex` file, Deploy and Undo work; PNG images come next. See the [roadmap](#roadmap).
+> a kit's texture with an `.ftex`, `.png` or `.dds` file, Deploy and Undo work; logos come next. See the
+> [roadmap](#roadmap).
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -98,8 +99,10 @@ why they need checking, and **Choose team…** picks the team by id or name. The
 each replacing the team's kit of the same kind. A team whose kits come from the game files gets a kitserver folder
 with only the pack's kits. A password-protected zip has to be extracted first, then imported as a folder.
 
-**Replace…** on a kit chooses a new `.ftex` texture for it (only the texture: the kit's settings, numbers and names
-stay). The change is not written to the game yet: the kit shows
+**Replace…** on a kit chooses a new texture for it: an `.ftex` file, or a `.png` or `.dds` image (square, 256, 512,
+1024, 2048 or 4096 pixels; the game's kits are 2048), which the app turns into an FTEX texture with every mip, keeping
+the header of the kit it replaces. Only the texture changes: the kit's settings, numbers and names stay. The change
+is not written to the game yet: the kit shows
 as *new* (in orange) and the status bar counts the kits waiting; **Keep the current kit** or Changes → Discard all
 changes drops them. Changes → **Deploy to the game** (Ctrl+D) installs them:
 
@@ -185,6 +188,7 @@ Development rules (test-driven, 100% line and branch coverage, no network in tes
 | `flkm/game/pesdb.py` | Database tables: WESYS unpacking, teams, competitions and their names, entries, countries |
 | `flkm/game/recipe.py` | Mod Studio recipe of the active world: the country of each league Mod Studio adds |
 | `flkm/game/ftex.py` | FTEX textures (DXT1, DXT5, BC7) decoded to images |
+| `flkm/game/ftex_write.py` | FTEX textures written from blocks, images (DXT5 with mips) and DDS files; kit textures |
 | `flkm/game/kits.py` | Which kits a team wears (kitserver folder or game files) |
 | `tests/` | One test file per module, `test_rule_*.py` for repository rules |
 | `scripts/build.ps1` | Builds the one-folder exe and smoke-tests it (local hook and release) |

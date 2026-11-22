@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Browse, replace, generate and deploy the kits and logos installed in SP Football Life 2027"
 requires-python = ">=3.12"
 license = "PolyForm-Noncommercial-1.0.0"
-dependencies = ["PySide6>=6.8", "Pillow>=11"]
+dependencies = ["PySide6>=6.8", "Pillow>=11.2"]  # 11.2: DXT5 in DDS writing
 
 [project.gui-scripts]
 flkm = "flkm.cli:main"

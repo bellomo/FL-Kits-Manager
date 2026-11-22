@@ -11,7 +11,7 @@ import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from flkm.game import ftex
+from flkm.game import ftex, ftex_write
 
 
 @dataclass(frozen=True)
@@ -69,10 +69,10 @@ class Staging:
         self._save()
         return change
 
-    def add(self, team_id: int, team_name: str, slot: str, src: Path) -> Change:
-        """stages src as the texture of the team's slot; raises FtexError if src is not a readable FTEX"""
-        data = Path(src).read_bytes()
-        ftex.parse(data)
+    def add(self, team_id: int, team_name: str, slot: str, src: Path, header: bytes | None = None) -> Change:
+        """stages src (.ftex as it is, .png or .dds made into an FTEX with the header of the kit it replaces) as the
+        texture of the team's slot; raises FtexError if src cannot be a kit texture"""
+        data = ftex_write.kit_texture(Path(src), header)
         change = Change(team_id, team_name, slot, f"u{team_id}{slot}.ftex", str(src))
         self.path(change).parent.mkdir(parents=True, exist_ok=True)
         self.path(change).write_bytes(data)

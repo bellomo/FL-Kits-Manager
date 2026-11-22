@@ -4,12 +4,13 @@ line or the settings, else the user chooses it; the chosen folder and the kit vi
 import zipfile
 
 import pytest
+from PIL import Image
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox
 
 import flkm
 from conftest import build_ftex, dxt5_block, team_record, wesys
 from flkm import deploy, main_window, settings
-from flkm.game import process
+from flkm.game import ftex, process
 from flkm.import_dialog import ImportDialog
 from flkm.main_window import MainWindow
 
@@ -289,6 +290,27 @@ def test_replace_a_kit_waits_for_deploy(qtbot, game, tmp_path, dialogs):
     assert len(make_window(qtbot).staging.changes) == 1  # kept when the app is closed
 
 
+def test_replace_with_a_png_keeps_the_header_of_the_kit_it_replaces(qtbot, game, tmp_path, dialogs):
+    w = bologna(qtbot, game)
+    old = w.catalog.kits(186)[0].texture().data[:0x40]
+    src = tmp_path / "home.png"
+    Image.new("RGBA", (256, 256), (0, 0, 255, 255)).save(src)
+    dialogs.file = str(src)
+    w.page.cards[0].replace_button.click()
+    data = w.staging.path(w.staging.changes[0]).read_bytes()
+    assert data[0x10 + 1 : 0x40] == old[0x10 + 1 :] and ftex.parse(data).width == 256
+    assert w.page.cards[0].source.text() == "New kit, not deployed yet: home.png"
+
+
+def test_replace_with_an_image_that_is_not_a_kit(qtbot, game, tmp_path, dialogs):
+    w = bologna(qtbot, game)
+    src = tmp_path / "small.png"
+    Image.new("RGBA", (64, 64)).save(src)
+    dialogs.file = str(src)
+    w.page.cards[0].replace_button.click()
+    assert w.staging.changes == [] and "256, 512, 1024, 2048 or 4096" in dialogs.warnings[0]
+
+
 def test_replace_cancelled(qtbot, game, dialogs):
     w = bologna(qtbot, game)
     w.page.cards[0].replace_button.click()
@@ -299,7 +321,9 @@ def test_replace_with_a_file_that_is_not_a_texture(qtbot, game, tmp_path, dialog
     w = bologna(qtbot, game)
     dialogs.file = str(new_texture(tmp_path, b"nope"))
     w.page.cards[0].replace_button.click()
-    assert w.staging.changes == [] and dialogs.warnings[0].startswith(f"{tmp_path / 'home.ftex'} is not a readable")
+    assert w.staging.changes == [] and dialogs.warnings[0].startswith(
+        f"{tmp_path / 'home.ftex'} cannot be used for this kit"
+    )
 
 
 def test_keep_the_current_kit(qtbot, game, tmp_path, dialogs):

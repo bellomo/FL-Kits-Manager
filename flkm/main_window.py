@@ -273,14 +273,16 @@ class MainWindow(QMainWindow):
     def replace_kit(self, slot: str) -> None:
         team = self.catalog.get(self.team_id)
         path, _ = QFileDialog.getOpenFileName(
-            self, f"New {slot_name(slot)} kit for {team.name}", "", "FTEX textures (*.ftex)"
+            self, f"New {slot_name(slot)} kit for {team.name}", "", "Kit textures (*.ftex *.png *.dds)"
         )
         if not path:
             return
         try:
-            self.staging.add(team.id, team.name, slot, Path(path))
+            kit = next((k for k in self.catalog.kits(team.id) if k.slot == slot), None)
+            header = kit.texture().data[:0x40] if kit else None  # an image takes the header of the kit it replaces
+            self.staging.add(team.id, team.name, slot, Path(path), header)
         except (ftex.FtexError, ValueError, OSError) as e:
-            QMessageBox.warning(self, APP_NAME, f"{path} is not a readable FTEX texture: {e}")
+            QMessageBox.warning(self, APP_NAME, f"{path} cannot be used for this kit: {e}")
             return
         self._changes_made()
 
