@@ -4,6 +4,7 @@ real game, never the user's settings)."""
 import os
 import socket
 import struct
+import zlib
 
 import pytest
 
@@ -140,6 +141,48 @@ def make_cpk(tmp_path):
         return p
 
     return make
+
+
+def dxt1_block(rgb565: int) -> bytes:
+    """a 4x4 DXT1/BC1 block of one colour"""
+    return struct.pack("<HHI", rgb565, rgb565, 0)
+
+
+def dxt5_block(rgb565: int, alpha: int = 255) -> bytes:
+    """a 4x4 DXT5/BC3 block of one colour and one alpha"""
+    return struct.pack("<BB", alpha, alpha) + b"\0" * 6 + dxt1_block(rgb565)
+
+
+def bc7_block(r: int, g: int, b: int, a: int = 255) -> bytes:
+    """a 4x4 BC7 mode 6 block of one colour: both endpoints the same, every index 0 (channels must be odd: 7 bits
+    plus a p-bit of 1)"""
+    bits, n = 1 << 6, 7  # mode 6
+    for value in (r, r, g, g, b, b, a, a):
+        bits |= (value >> 1) << n
+        n += 7
+    bits |= 1 << n | 1 << (n + 1)  # p-bits
+    return bits.to_bytes(16, "little")
+
+
+def build_ftex(fmt: int, width: int, height: int, mips: list[bytes], chunk: int = 0x4000, raw: bool = False) -> bytes:
+    """an FTEX texture (largest mip first in `mips`), each mip split in zlib chunks like the game's files"""
+    body_start = 0x40 + 16 * len(mips)
+    stored = []
+    for index, mip in enumerate(mips):
+        pieces = [mip[i : i + chunk] for i in range(0, len(mip), chunk)] or [b""]
+        blobs = [p if raw else zlib.compress(p) for p in pieces]
+        chunk_table, pos = b"", 8 * len(blobs)
+        for piece, blob in zip(pieces, blobs):
+            chunk_table += struct.pack("<HHI", len(blob) & 0xFFFF, len(piece) & 0xFFFF, pos | (0x80000000 * raw))
+            pos += len(blob)
+        stored.append((index, mip, chunk_table + b"".join(blobs), len(blobs)))
+    table, data = b"", b""
+    for index, mip, blob, nchunks in reversed(stored):  # data from the smallest mip to the largest
+        stored_at = body_start + len(data)
+        data += blob + b"\0" * (-len(blob) % 8)
+        table = struct.pack("<IIIBBH", stored_at, len(mip), len(blob), index, 0, nchunks) + table
+    head = b"FTEX" + struct.pack("<fHHHH", 2.03, fmt, width, height, 1) + bytes([len(mips)])
+    return head.ljust(0x40, b"\0") + table + data
 
 
 @pytest.fixture
