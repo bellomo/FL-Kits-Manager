@@ -108,7 +108,7 @@ limits, and warns you when the run could use up what is left. Without Claude, ev
 | Milestone | Content |
 |---|---|
 | M0 | Project skeleton, tests, exe built by GitHub Actions |
-| M1 | Read the game: sider.ini, kitserver map, CPK, FTEX textures, team catalog, which kit each team uses |
+| M1 | Read the game: sider.ini, kitserver map, CPK, FTEX textures, team catalog by federation, country and league, which kit each team uses |
 | M2 | Team list and team page, kits folded and unrolled |
 | M3 | Staging, deploy, undo |
 | M4 | Replace kits from a folder or a zip (match by id or name) |
@@ -142,12 +142,13 @@ Development rules (test-driven, 100% line and branch coverage, no network in tes
 | `flkm/cli.py` | Command line of the exe (`--smoke-test`) |
 | `flkm/main_window.py` | Main window |
 | `flkm/__main__.py` | `python -m flkm` and the PyInstaller entry point |
-| `flkm/catalog.py` | Team catalog of the installed game: teams, leagues, search, kits of a team |
+| `flkm/catalog.py` | Team catalog of the installed game: teams by federation, country and league, search, kits of a team |
 | `flkm/game/sider_ini.py` | sider.ini: livecpk roots in priority order, Lua modules, Mod Studio world |
 | `flkm/game/kitmap.py` | Kitserver map (`content/kits/map.txt`): team id → kit folder, league |
 | `flkm/game/cpk.py` | CRI CPK archives, read only |
 | `flkm/game/files.py` | Where the game takes a file from: livecpk roots, then `download/`, then `Data/` CPKs |
-| `flkm/game/pesdb.py` | Database tables (`Team.bin`): WESYS unpacking, teams |
+| `flkm/game/pesdb.py` | Database tables: WESYS unpacking, teams, competitions, competition entries, countries |
+| `flkm/game/recipe.py` | Mod Studio recipe of the active world: the country of each league Mod Studio adds |
 | `flkm/game/ftex.py` | FTEX textures (DXT1, DXT5, BC7) decoded to images |
 | `flkm/game/kits.py` | Which kits a team wears (kitserver folder or game files) |
 | `tests/` | One test file per module, `test_rule_*.py` for repository rules |

@@ -55,6 +55,7 @@ def home(tmp_path, monkeypatch):
     """a temporary app data folder for every test: the user's real settings and staging are never touched"""
     h = tmp_path / "flkm_home"
     monkeypatch.setenv("FLKM_HOME", str(h))
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))  # no real Mod Studio recipe either
     return h
 
 
@@ -198,6 +199,30 @@ def team_record(team_id: int, name: str, abbr: str) -> bytes:
     struct.pack_into("<I", r, 8, team_id)
     r[368 : 368 + 70] = name.encode().ljust(70, b"\0")
     r[882 : 882 + 10] = abbr.encode().ljust(10, b"\0")
+    return bytes(r)
+
+
+def competition_record(comp_id: int, name: str) -> bytes:
+    """a 36-byte Competition.bin record: 0x64c8 at 0, id low byte at 5 and high byte at 7, name at 8"""
+    r = bytearray(36)
+    r[0:2] = b"\x64\xc8"
+    r[5], r[7] = comp_id & 0xFF, comp_id >> 8
+    r[8:36] = name.encode().ljust(28, b"\0")
+    return bytes(r)
+
+
+def entry_record(team_id: int, comp_id: int, position: int = 0) -> bytes:
+    """a 12-byte CompetitionEntry.bin record: team, an unknown u32, then competition and position packed in a u32"""
+    return struct.pack("<III", team_id, 0, (comp_id & 0xFF) | position << 8 | (comp_id >> 8) << 24)
+
+
+def country_record(country_id: int, name: str, continent: int, confederation: int) -> bytes:
+    """a 1420-byte Country.bin record: id in the low 10 bits at 0, continent at 4, confederation at 5, upper case
+    English name at 288"""
+    r = bytearray(1420)
+    struct.pack_into("<I", r, 0, country_id | 0x5000)
+    r[4], r[5] = continent, confederation
+    r[288 : 288 + 70] = name.encode().ljust(70, b"\0")
     return bytes(r)
 
 
