@@ -231,7 +231,16 @@ limits, and warns you when the run could use up what is left. Without Claude, ev
 The status bar says whether the app found Claude Code. It looks for it on `PATH`, where its installers put it
 (`%USERPROFILE%\.local\bin`, `%APPDATA%\npm`) and inside the Claude desktop app (the newest version); a program
 counts only when `claude --version` answers. **Claude → Choose Claude Code…** picks the program by hand (remembered),
-**Look for Claude Code again** forgets it and looks again.
+**Look for Claude Code again** forgets it and looks again. Next to the version it shows your plan (Pro, Max...) or
+"not signed in".
+
+Before every Claude run a window shows what it will do, the model (you can choose another), the tokens it should
+use (a first guess, then the median of your last runs of the same kind), what the app used in the last 5 hours
+and 7 days, and the usage limits Claude Code reported at the end of the last run (5-hour and 7-day windows, how
+much is used and when they reset), with a warning when one is close. Claude runs only after **Run**. A run has no
+saved session, only the tools its task needs, a time limit and a spending cap. **Claude → Check usage limits…**
+makes a tiny run (a one-word answer with Haiku) just to read the limits. The runs are logged in
+`%APPDATA%\FLKitsManager\claude_runs.jsonl` (time, kind, model, tokens; no answers, nothing personal).
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -290,6 +299,8 @@ Development rules (test-driven, 100% line and branch coverage, no network in tes
 | `flkm/staging.py` | Kits chosen to replace the game's (textures or whole kits), kept until Deploy (`%APPDATA%\FLKitsManager\staging`) |
 | `flkm/deploy.py` | Deploy, Undo (back to any deploy, checking for files changed since), Re-apply an undone deploy, clear the history, Re-apply links, status of the app's links |
 | `flkm/claude.py` | Claude Code (the claude CLI): where it is looked for, its version |
+| `flkm/claude_run.py` | A Claude run (`claude -p`, stream-json): answer, tokens, usage limits; the run log and estimates |
+| `flkm/claude_dialog.py` | The window before every Claude run: model, estimate, usage, limits, Run |
 | `flkm/render.py` | Kit pictures from a texture: unrolled, and folded (front and back as in the game) |
 | `flkm/settings.py` | Settings (`%APPDATA%\FLKitsManager\settings.json`): game folder, kit view, text size, Claude Code chosen |
 | `flkm/__main__.py` | `python -m flkm` and the PyInstaller entry point |

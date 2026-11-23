@@ -1,6 +1,7 @@
 """The main window: the team list on the left, the team page on the right. The game folder comes from the command
 line or the settings, else the user chooses it; the chosen folder and the kit view are remembered."""
 
+import datetime
 import json
 import zipfile
 from pathlib import Path, PurePath
@@ -11,7 +12,8 @@ from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox
 
 import flkm
 from conftest import build_ftex, buttons_without_tooltip, competition_record, dxt5_block, team_record, wesys
-from flkm import claude, deploy, main_window, settings
+from flkm import claude, claude_run, deploy, main_window, settings
+from flkm.claude_dialog import ClaudeRunDialog, limits_text
 from flkm.game import ftex, process
 from flkm.history_dialog import DeployHistoryDialog
 from flkm.import_dialog import ImportDialog
@@ -1165,3 +1167,101 @@ def test_a_failure_while_checking_the_program_chosen(qtbot, dialogs, monkeypatch
     dialogs.file = "C:/tools/claude.exe"
     w.choose_claude_action.trigger()
     assert len(dialogs.warnings) == 1 and w.claude is None
+
+
+# --- Claude runs ------------------------------------------------------------------------------------------------------
+
+PRO = claude_run.Account(True, "Pro")
+NOW = datetime.datetime(2026, 11, 23, 15, 0, tzinfo=datetime.timezone.utc)
+LIMITS = claude_run.Limits(
+    claude_run.Window(0.24, NOW + datetime.timedelta(hours=2), "allowed"),
+    claude_run.Window(0.25, NOW + datetime.timedelta(days=3), "allowed"),
+    NOW,
+)
+
+
+def ready_window(qtbot, monkeypatch, account=PRO):
+    monkeypatch.setattr(claude, "find", lambda saved: CLI)
+    monkeypatch.setattr(claude_run, "account", lambda cli: account)
+    return make_window(qtbot)
+
+
+def test_the_status_bar_says_the_plan(qtbot, monkeypatch):
+    w = ready_window(qtbot, monkeypatch)
+    assert w.claude_label.text() == "Claude Code 2.1.330 · Pro" and w.check_limits_action.isEnabled()
+
+
+def test_signed_out_claude_is_not_ready(qtbot, monkeypatch, dialogs):
+    w = ready_window(qtbot, monkeypatch, claude_run.Account(False, None))
+    assert w.claude_label.text() == "Claude Code 2.1.330 · not signed in"
+    assert "Not signed in" in w.claude_label.toolTip() and not w.check_limits_action.isEnabled()
+    w.check_limits()
+    assert dialogs.warnings == ["Claude Code is not ready: see the Claude menu."]
+
+
+def test_choose_claude_code_reads_its_account(qtbot, dialogs, monkeypatch):
+    w = make_window(qtbot)
+    monkeypatch.setattr(claude, "check", lambda path: CLI)
+    monkeypatch.setattr(claude_run, "account", lambda cli: PRO)
+    dialogs.file = "C:/tools/claude.exe"
+    w.choose_claude_action.trigger()
+    assert w.claude_account == PRO and w.claude_label.text().endswith("· Pro")
+
+
+class Runs:
+    """the run window answered, and claude_run.run_task replaced"""
+
+    def __init__(self, monkeypatch, answer=True, result=None, error=None):
+        self.shown, self.ran = [], []
+        accepted = QDialog.Accepted if answer else QDialog.Rejected
+        monkeypatch.setattr(ClaudeRunDialog, "exec", lambda d: self.shown.append(d) or accepted)
+
+        def run_task(cli, task, workdir, model=None):
+            self.ran.append((cli, task.kind, workdir, model))
+            if error:
+                raise error
+            return result
+
+        monkeypatch.setattr(claude_run, "run_task", run_task)
+
+
+def test_check_usage_limits(qtbot, monkeypatch, dialogs):
+    w = ready_window(qtbot, monkeypatch)
+    done = claude_run.Done("check", "ok", "claude-haiku-5-5", 4696, 0.0008, NOW, LIMITS)
+    runs = Runs(monkeypatch, result=done)
+    w.check_limits_action.trigger()
+    assert runs.shown[0].what.text().startswith("Check how much of your Claude usage limits")
+    assert runs.ran == [(CLI.path, "check", settings.home() / "claude_work", "haiku")]
+    assert dialogs.infos == [f"Your Claude usage limits:\n\n{limits_text(LIMITS)}"]
+    assert w.statusBar().currentMessage() == "Claude finished: 4,696 tokens (claude-haiku-5-5)."
+    assert [r.tokens for r in claude_run.runs(settings.home())] == [4696]  # logged
+
+
+def test_check_usage_limits_without_limits_said(qtbot, monkeypatch, dialogs):
+    w = ready_window(qtbot, monkeypatch)
+    Runs(monkeypatch, result=claude_run.Done("check", "ok", "m", 10, 0.0, NOW, None))
+    w.check_limits()
+    assert dialogs.infos == ["Your Claude usage limits:\n\nClaude Code did not say them this time."]
+
+
+def test_a_run_cancelled_does_not_start(qtbot, monkeypatch, dialogs):
+    w = ready_window(qtbot, monkeypatch)
+    runs = Runs(monkeypatch, answer=False)
+    w.check_limits()
+    assert runs.shown and runs.ran == [] and dialogs.infos == []
+
+
+def test_a_run_that_fails(qtbot, monkeypatch, dialogs):
+    w = ready_window(qtbot, monkeypatch)
+    Runs(
+        monkeypatch,
+        error=claude_run.ClaudeError("Your Claude usage limit (5 hours) is reached: it resets on 23/11 17:30."),
+    )
+    w.check_limits()
+    assert dialogs.warnings == ["Your Claude usage limit (5 hours) is reached: it resets on 23/11 17:30."]
+    assert w.statusBar().currentMessage() == "Claude did not finish." and claude_run.runs(settings.home()) == []
+
+
+def test_claude_with_an_account_it_cannot_tell(qtbot, monkeypatch):
+    w = ready_window(qtbot, monkeypatch, account=None)  # the account cannot be told: the run may go on
+    assert w.claude_label.text() == "Claude Code 2.1.330" and w.check_limits_action.isEnabled()

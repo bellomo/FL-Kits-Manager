@@ -6,6 +6,7 @@ installs them; Changes > Undo last deploy puts back what the last deploy changed
 """
 
 import dataclasses
+import datetime
 import functools
 import io
 from collections.abc import Callable
@@ -31,7 +32,8 @@ from PySide6.QtWidgets import (
 )
 
 import flkm
-from flkm import catalog, claude, deploy, logo_pack, pack, settings
+from flkm import catalog, claude, claude_run, deploy, logo_pack, pack, settings
+from flkm.claude_dialog import ClaudeRunDialog, limits_text
 from flkm.competition_page import CompetitionPage
 from flkm.competition_tree import CompetitionTree
 from flkm.game import ftex, kits, logos, process
@@ -66,6 +68,26 @@ def _apply_text_size(size: int | None) -> None:
 
 def _kits(n: int) -> str:
     return f"{n} kit" if n == 1 else f"{n} kits"
+
+
+CHECK_TASK = claude_run.Task(
+    "check",
+    "Check how much of your Claude usage limits is used: a tiny run (Claude answers one word)",
+    "Reply with the single word ok.",
+    "haiku",
+    (),
+    5000,
+    0.05,
+    120,
+)
+
+
+def _with_account(cli: claude.Cli | None) -> tuple:
+    return cli, claude_run.account(cli.path) if cli else None
+
+
+def _utc_now() -> datetime.datetime:
+    return datetime.datetime.now(datetime.timezone.utc)
 
 
 def _installed() -> list:
@@ -145,6 +167,7 @@ class MainWindow(QMainWindow):
         self.pending_label.setStyleSheet(f"color: {PENDING_COLOUR}; font-weight: bold")
         self.statusBar().addPermanentWidget(self.pending_label)
         self.claude: claude.Cli | None = None
+        self.claude_account: claude_run.Account | None = None
         self.claude_label = QLabel()
         self.statusBar().addPermanentWidget(self.claude_label)
 
@@ -192,6 +215,12 @@ class MainWindow(QMainWindow):
         )
         self.find_claude_action = QAction("&Look for Claude Code again", self)
         self.find_claude_action.setStatusTip("Forget the program chosen and look for Claude Code where it is installed")
+        self.check_limits_action = QAction("Check &usage limits…", self, enabled=False)
+        self.check_limits_action.setStatusTip(
+            "A tiny Claude run (a one-word answer) to read how much of your usage limits is used"
+        )
+        claude_menu.addAction(self.check_limits_action)
+        claude_menu.addSeparator()
         claude_menu.addAction(self.choose_claude_action)
         claude_menu.addAction(self.find_claude_action)
         self.larger_text_action.triggered.connect(lambda: self._step_text(+1))
@@ -212,6 +241,7 @@ class MainWindow(QMainWindow):
         self.relink_action.triggered.connect(self.relink)
         self.choose_claude_action.triggered.connect(self.choose_claude)
         self.find_claude_action.triggered.connect(lambda: self.find_claude(forget=True))
+        self.check_limits_action.triggered.connect(self.check_limits)
         self.relink_button.clicked.connect(self.relink)
         self.tree.team_selected.connect(self.show_team)
         self.page.view_changed.connect(self._view_changed)
@@ -706,16 +736,26 @@ class MainWindow(QMainWindow):
             self._save(claude_path=None)
         self.claude_label.setText("Looking for Claude Code…")
         saved = self.settings.claude_path
-        run_in_thread(lambda: claude.find(saved), self._claude_found, lambda message: self._claude_found(None))
+        run_in_thread(lambda: _with_account(claude.find(saved)), lambda r: self._claude_found(*r), self._claude_lost)
 
-    def _claude_found(self, cli: claude.Cli | None) -> None:
-        self.claude = cli
-        self.claude_label.setText(claude.describe(cli))
+    def _claude_lost(self, message: str) -> None:
+        self._claude_found(None, None)
+
+    def _claude_found(self, cli: claude.Cli | None, account: claude_run.Account | None = None) -> None:
+        self.claude, self.claude_account = cli, account
+        self.claude_label.setText(claude.describe(cli) + (f" · {account.text()}" if cli and account else ""))
+        self.check_limits_action.setEnabled(self._claude_ready())
         if cli:
-            self.claude_label.setStyleSheet("")
+            signed_out = account is not None and not account.logged_in
+            self.claude_label.setStyleSheet("color: #e08000" if signed_out else "")
             self.claude_label.setToolTip(
                 f"{cli.path}\nFound: {cli.source}. Used for the Claude features; Claude > Choose Claude Code… to use "
                 "another one."
+                + (
+                    "\nNot signed in: sign in to Claude (the desktop app, or `claude auth login`)."
+                    if signed_out
+                    else ""
+                )
             )
         else:
             self.claude_label.setStyleSheet("color: gray")
@@ -732,21 +772,57 @@ class MainWindow(QMainWindow):
             return
         self.claude_label.setText("Checking Claude Code…")
         run_in_thread(
-            lambda: claude.check(path),
-            lambda cli: self._claude_chosen(path, cli),
-            lambda m: self._claude_chosen(path, None),
+            lambda: _with_account(claude.check(path)),
+            lambda r: self._claude_chosen(path, *r),
+            lambda m: self._claude_chosen(path, None, None),
         )
 
-    def _claude_chosen(self, path: str, cli: claude.Cli | None) -> None:
+    def _claude_chosen(self, path: str, cli: claude.Cli | None, account: claude_run.Account | None) -> None:
         if cli is None:
-            self._claude_found(self.claude)  # the one used before stays
+            self._claude_found(self.claude, self.claude_account)  # the one used before stays
             QMessageBox.warning(
                 self, APP_NAME, f"{Path(path).name} is not Claude Code: it did not answer `claude --version`."
             )
             return
         self._save(claude_path=str(cli.path))
-        self._claude_found(cli)
+        self._claude_found(cli, account)
         self.statusBar().showMessage(f"Using {claude.describe(cli)}: {cli.path}")
+
+    def _claude_ready(self) -> bool:
+        """Claude Code found, and signed in (or the app cannot tell: the run will say)"""
+        return self.claude is not None and (self.claude_account is None or self.claude_account.logged_in)
+
+    def run_claude(self, task: claude_run.Task, on_done) -> None:
+        """shows what the run will use and, after Run, runs the task in the background; on_done(Done) at the end"""
+        if not self._claude_ready():
+            QMessageBox.warning(self, APP_NAME, "Claude Code is not ready: see the Claude menu.")
+            return
+        home = settings.home()
+        dialog = ClaudeRunDialog(task, self.claude_account, claude_run.runs(home), _utc_now(), self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        work = home / "claude_work"
+        work.mkdir(parents=True, exist_ok=True)
+        model, cli = dialog.model(), self.claude.path
+        self.statusBar().showMessage("Claude is working…")
+
+        def finished(done: claude_run.Done) -> None:
+            claude_run.log_run(home, done)
+            self.statusBar().showMessage(f"Claude finished: {done.tokens:,} tokens ({done.model}).")
+            on_done(done)
+
+        def failed(message: str) -> None:
+            self.statusBar().showMessage("Claude did not finish.")
+            QMessageBox.warning(self, APP_NAME, message)
+
+        run_in_thread(lambda: claude_run.run_task(cli, task, work, model), finished, failed)
+
+    def check_limits(self) -> None:
+        def show(done: claude_run.Done) -> None:
+            text = limits_text(done.limits) if done.limits else "Claude Code did not say them this time."
+            QMessageBox.information(self, APP_NAME, f"Your Claude usage limits:\n\n{text}")
+
+        self.run_claude(CHECK_TASK, show)
 
     def _save(self, **changes) -> None:
         self.settings = dataclasses.replace(self.settings, **changes)

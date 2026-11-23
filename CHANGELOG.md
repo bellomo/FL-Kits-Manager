@@ -79,3 +79,7 @@ Versions follow semver (`MAJOR.MINOR.PATCH`); the release zip is `FLKitsManager_
 - Claude Code (M7a): the status bar says whether the app found it (on PATH, where its installers put it, or inside
   the Claude desktop app; it must answer `claude --version`); Claude → Choose Claude Code… and Look for Claude
   Code again.
+- Claude runs (M7b): the status bar adds the plan (or "not signed in"); before every run a window shows the model,
+  the tokens estimated, what the app used in the last 5 hours and 7 days, the usage limits last reported by
+  Claude Code and a warning when one is close; runs have no saved session, only their tools, a time limit and a
+  spending cap, and are logged; Claude → Check usage limits… reads the limits with a tiny run.
