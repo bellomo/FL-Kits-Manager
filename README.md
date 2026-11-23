@@ -123,6 +123,8 @@ then the update and base archives).
   the texture changes: the kit's numbers and names stay.
 - **A crest:** **Replace crest…** on the team page takes a picture (PNG, DDS, JPEG or WebP; one that is not square is
   centred on transparency) and makes the game's three sizes, 128, 256 and 512 pixels.
+  Some clubs have a dark and a white version of their crest in the game (most of them instead of the plain one:
+  LASK, Juventus...): the page shows both, and a new crest replaces every version the club has.
 - **A competition's logo:** **Replace logo…** uses one picture for all three variants; **Replace…** under a variant
   changes only that one.
 
@@ -238,7 +240,8 @@ Before every Claude run a window shows what it will do, the model (you can choos
 use (a first guess, then the median of your last runs of the same kind), what the app used in the last 5 hours
 and 7 days, and the usage limits Claude Code reported at the end of the last run (5-hour and 7-day windows, how
 much is used and when they reset), with a warning when one is close. Claude runs only after **Run**. A run has no
-saved session, only the tools its task needs, a time limit and a spending cap. **Claude → Check usage limits…**
+saved session, only the tools its task needs (nothing else is allowed), a time limit and a spending cap.
+**Claude → Check usage limits…**
 makes a tiny run (a one-word answer with Haiku) just to read the limits. The runs are logged in
 `%APPDATA%\FLKitsManager\claude_runs.jsonl` (time, kind, model, tokens; no answers, nothing personal).
 
@@ -257,7 +260,7 @@ makes a tiny run (a one-word answer with Haiku) just to read the limits. The run
 | M4 | Import whole kits from kit packs, folder or zip (match by id and name); PNG and DDS images | ✅ [`2103776`](https://github.com/bellomo/FL-Kits-Manager/commit/2103776), [`0e554a2`](https://github.com/bellomo/FL-Kits-Manager/commit/0e554a2) |
 | M5 | Logos: view and replace crests and competition logos | ✅ [`942d72e`](https://github.com/bellomo/FL-Kits-Manager/commit/942d72e) |
 | M6 | Kits from photos loaded by the user (end-to-end script) | ✅ [`bbadf03`](https://github.com/bellomo/FL-Kits-Manager/commit/bbadf03), [`48e61f6`](https://github.com/bellomo/FL-Kits-Manager/commit/48e61f6), [`fce889d`](https://github.com/bellomo/FL-Kits-Manager/commit/fce889d) |
-| M7 | Claude: detection, usage estimate and warning, logos from the web | |
+| M7 | Claude: detection, usage estimate and warning | |
 | M8 | Kits from photos found and reviewed by Claude | |
 | M9 | Release 0.1.0: tag `v0.1.0`, exe zip `FLKitsManager_v0.1.0.zip` on the GitHub releases page | |
 
@@ -327,6 +330,7 @@ Development rules (test-driven, 100% line and branch coverage, no network in tes
 | `flkm/photokit/maker.py` | Makers' logos cut from photos, kept in `%APPDATA%\FLKitsManager\makers` and recognised by shape |
 | `flkm/photokit/team.py` | A team from its photos: crest from the game, maker from the cache, textures staged for Deploy |
 | `tests/` | One test file per module, `test_rule_*.py` for repository rules |
+| `tests/fake_claude.py` | A fake Claude Code for the tests: it answers what the real one answers |
 | `scripts/build.ps1` | Builds the one-folder exe and smoke-tests it (local hook and release) |
 | `scripts/hooks/post-commit` | Local build after every commit |
 | `.github/workflows/build.yml` | Tests on every push, exe and release on tags |

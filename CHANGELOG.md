@@ -83,3 +83,8 @@ Versions follow semver (`MAJOR.MINOR.PATCH`); the release zip is `FLKitsManager_
   the tokens estimated, what the app used in the last 5 hours and 7 days, the usage limits last reported by
   Claude Code and a warning when one is close; runs have no saved session, only their tools, a time limit and a
   spending cap, and are logged; Claude → Check usage limits… reads the limits with a tiny run.
+- Claude runs: a run allows its own tools (--allowedTools: in -p mode Claude Code denied them) and says when Claude
+  Code denied one; the model logged is the main one (not Haiku, which reads the web pages).
+- Crests the game has only as a dark and a white version (32 clubs) are found and shown, and a new crest replaces
+  them too; files in a CPK are found whatever the case of their name (Cádiz's crest).
+- No small window flashes any more when the team changes.

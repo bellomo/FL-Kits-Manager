@@ -226,6 +226,23 @@ def test_a_team_without_a_crest(qtbot):
     assert p.crest.text() == "No crest" and p.crest_source.text() == ""
 
 
+def test_the_dark_and_the_white_version_of_a_crest(qtbot):
+    p = make_page(qtbot)
+    dark, white = Image.new("RGBA", (64, 64), (0, 0, 0, 255)), Image.new("RGBA", (64, 64), (255, 255, 255, 255))
+    p.show_crest(None, "two files", variants={"b": dark, "w": white})
+    assert not p.crest.isVisibleTo(p)  # no plain crest
+    for v, background in (("b", 240), ("w", 32)):
+        label = p.crest_variants[v]
+        assert label.isVisibleTo(p) and label.toolTip()
+        image = label.pixmap().toImage()
+        assert image.pixelColor(2, 2).red() == background
+    p.show_crest(dark, "one file", variants={"b": dark})
+    assert p.crest.isVisibleTo(p) and p.crest_variants["b"].isVisibleTo(p) and not p.crest_variants["w"].isVisibleTo(p)
+    p.show_crest(None, "")
+    assert p.crest.isVisibleTo(p) and p.crest.text() == "No crest"
+    assert not any(label.isVisibleTo(p) for label in p.crest_variants.values())
+
+
 def test_a_crest_waiting_for_deploy(qtbot):
     p = make_page(qtbot)
     p.show_crest(Image.new("RGBA", (100, 50)), "New crest, not deployed yet: bologna.png", pending=True)

@@ -67,6 +67,34 @@ def test_a_crest_from_the_game_archives(game, make_cpk):
     assert found.source == "Data\\dt15_x64.cpk" and logos.picture(found).getpixel((5, 5)) == RED
 
 
+def test_a_crest_with_only_a_dark_and_a_white_version(game, make_cpk):
+    """32 clubs (LASK, Juventus...) have no plain crest: a dark one for light backgrounds and a white one"""
+    pair = {FLAG + "e_002078_r_b_ll.png": png(512, BLUE), FLAG + "e_002078_r_w_l.png": png(256)}
+    gf = make_game(game, make_cpk, packed=pair)
+    found = logos.find_crests(gf, 2078)
+    assert {v: f.path for v, f in found.items()} == {
+        "b": FLAG + "e_002078_r_b_ll.png",
+        "w": FLAG + "e_002078_r_w_l.png",
+    }
+    assert logos.find_crest(gf, 2078).path == FLAG + "e_002078_r_b_ll.png"  # one picture: the dark one
+
+
+def test_the_plain_crest_comes_first(game, make_cpk):
+    packed = {FLAG + "e_000125_r_b_ll.png": png(512, BLUE), FLAG + "e_000125_r.png": png(128)}
+    gf = make_game(game, make_cpk, packed=packed)
+    assert list(logos.find_crests(gf, 125)) == ["", "b"] and logos.find_crest(gf, 125).path == FLAG + "e_000125_r.png"
+
+
+def test_a_new_crest_replaces_every_version_the_game_has(game, make_cpk):
+    gf = make_game(game, make_cpk, packed={FLAG + "e_002078_r_b.png": png(128), FLAG + "e_002078_r_w.png": png(128)})
+    made = logos.make_crest(Image.new("RGBA", (600, 600), RED), 2078)
+    files_ = logos.with_crest_variants(gf, 2078, made)
+    names = [n for v in ("", "b", "w") for n in logos.crest_files(2078, v).values()]
+    assert sorted(files_) == sorted(names)
+    assert files_[FLAG + "e_002078_r_w_ll.png"] == files_[FLAG + "e_002078_r_ll.png"]
+    assert logos.with_crest_variants(gf, 186, made) == made  # only a plain crest: nothing more
+
+
 def test_the_competition_logo_the_game_uses(game, make_cpk):
     gf = make_game(game, make_cpk, {EMB + "emb_0017_w_ll.png": png(512, BLUE)}, {EMB + "emb_0017_w_l.png": png(256)})
     assert logos.find_emblem(gf, 17, "w").path == EMB + "emb_0017_w_ll.png"

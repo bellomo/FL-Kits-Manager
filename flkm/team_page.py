@@ -27,6 +27,10 @@ TITLE_EXTRA = 6  # the team name is this many points larger than the text
 COLUMNS = {"folded": 2, "unrolled": 3}
 PENDING_COLOUR = "#d9822b"  # kits waiting for Deploy
 CREST_SIZE = 96  # the crest next to the team name
+CREST_VARIANTS = {  # background the version is made for, what the tooltip says
+    "b": ((240, 240, 240, 255), "Dark version, for light backgrounds"),
+    "w": ((32, 32, 32, 255), "White version, for dark backgrounds"),
+}
 
 
 def to_pixmap(img: Image.Image, alpha: bool = False) -> QPixmap:
@@ -37,6 +41,14 @@ def to_pixmap(img: Image.Image, alpha: bool = False) -> QPixmap:
     rgb = img.convert("RGB")
     data = rgb.tobytes()
     return QPixmap.fromImage(QImage(data, rgb.width, rgb.height, 3 * rgb.width, QImage.Format_RGB888).copy())
+
+
+def _crest_square(image: Image.Image, background: tuple) -> Image.Image:
+    square = image.convert("RGBA")
+    square.thumbnail((CREST_SIZE, CREST_SIZE), Image.LANCZOS)
+    canvas = Image.new("RGBA", (CREST_SIZE, CREST_SIZE), background)
+    canvas.alpha_composite(square, ((CREST_SIZE - square.width) // 2, (CREST_SIZE - square.height) // 2))
+    return canvas
 
 
 def common_folder(folders: list[Path]) -> Path | None:
@@ -108,12 +120,13 @@ class KitCard(QWidget):
         self.source.setStyleSheet(f"color: {PENDING_COLOUR if pending else 'gray'}")
         self.source.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.source.setWordWrap(True)
-        self.replace_button = QPushButton("Replace…")
+        # the buttons are the card's from the start: shown without a parent they would be windows for a moment
+        self.replace_button = QPushButton("Replace…", self)
         self.replace_button.setToolTip(
             "Choose an .ftex, .png or .dds texture to use for this kit (installed by Deploy)"
         )
         self.replace_button.setVisible(not added)  # a texture needs a kit to go into
-        self.discard_button = QPushButton("Don't add this kit" if added else "Keep the current kit")
+        self.discard_button = QPushButton("Don't add this kit" if added else "Keep the current kit", self)
         self.discard_button.setToolTip(
             "Drop this new kit: it is not added"
             if added
@@ -178,8 +191,12 @@ class TeamPage(QWidget):
         scroll = QScrollArea(widgetResizable=True)
         scroll.setWidget(grid_widget)
 
-        self.crest = QLabel(alignment=Qt.AlignCenter)
+        self.crest = QLabel(self, alignment=Qt.AlignCenter)
         self.crest.setFixedSize(CREST_SIZE, CREST_SIZE)
+        self.crest_variants = {v: QLabel(self) for v in CREST_VARIANTS}
+        for v, label in self.crest_variants.items():
+            label.setFixedSize(CREST_SIZE, CREST_SIZE)
+            label.setToolTip(CREST_VARIANTS[v][1])
         self.crest_source = QLabel()
         self.crest_source.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.replace_crest_button = QPushButton("Replace crest…")
@@ -193,24 +210,29 @@ class TeamPage(QWidget):
         self.keep_crest_button.clicked.connect(self.crest_discard_requested)
         crest_row = QHBoxLayout()
         crest_row.addWidget(self.crest_source)
+        crest_row.addStretch()
         crest_row.addWidget(self.replace_crest_button)
         crest_row.addWidget(self.keep_crest_button)
-        crest_row.addStretch()
         self.show_crest(None, "")
 
         header = QHBoxLayout()
         names = QVBoxLayout()
         names.addWidget(self.title)
         names.addWidget(self.details)
-        names.addLayout(crest_row)
         header.addWidget(self.crest)
-        header.addLayout(names, 1)
+        for label in self.crest_variants.values():
+            header.addWidget(label)
         self.photos_button = QPushButton("Kits from photos…")
         self.photos_button.setToolTip("Make the team's kits from photos of the real ones (installed by Deploy)")
         self.photos_button.clicked.connect(self.photos_requested)
-        header.addWidget(self.photos_button)
-        header.addWidget(self.folded_button)
-        header.addWidget(self.unrolled_button)
+        top = QHBoxLayout()
+        top.addLayout(names, 1)
+        for button in (self.photos_button, self.folded_button, self.unrolled_button):
+            top.addWidget(button)
+        rows = QVBoxLayout()  # the crest row below takes the whole width: its buttons end at the right edge
+        rows.addLayout(top)
+        rows.addLayout(crest_row)
+        header.addLayout(rows, 1)
         layout = QVBoxLayout(self)
         layout.addLayout(header)
         layout.addWidget(self.crest_folder_row)
@@ -262,21 +284,29 @@ class TeamPage(QWidget):
         self.empty.setVisible(not self.cards)
 
     def show_crest(
-        self, image: Image.Image | None, text: str, pending: bool = False, folder: Path | None = None
+        self,
+        image: Image.Image | None,
+        text: str,
+        pending: bool = False,
+        folder: Path | None = None,
+        variants: dict[str, Image.Image] | None = None,
     ) -> None:
-        """the team's crest (None: the game has none), its file name or a note, and the folder it is in (shown above
-        the kits folder); pending = a crest waiting for Deploy"""
+        """the team's crest (None: the game has no plain one), its file name or a note, and the folder it is in (shown
+        above the kits folder); pending = a crest waiting for Deploy; variants: its dark ("b") and white ("w") version,
+        shown on the background they are for"""
+        variants = variants or {}
+        for v, label in self.crest_variants.items():
+            if v in variants:
+                label.setPixmap(to_pixmap(_crest_square(variants[v], CREST_VARIANTS[v][0]), alpha=True))
+            label.setVisible(v in variants)
+        self.crest.setVisible(image is not None or not variants)
         self.crest_folder = folder
         show_folder(self.crest_folder_row, self.crest_folder_label, folder)
         if image is None:
             self.crest.setPixmap(QPixmap())
             self.crest.setText("No crest")
         else:
-            square = image.convert("RGBA")
-            square.thumbnail((CREST_SIZE, CREST_SIZE), Image.LANCZOS)
-            canvas = Image.new("RGBA", (CREST_SIZE, CREST_SIZE), (0, 0, 0, 0))
-            canvas.alpha_composite(square, ((CREST_SIZE - square.width) // 2, (CREST_SIZE - square.height) // 2))
-            self.crest.setPixmap(to_pixmap(canvas, alpha=True))
+            self.crest.setPixmap(to_pixmap(_crest_square(image, (0, 0, 0, 0)), alpha=True))
         self.crest_source.setText(text)
         self.crest_source.setStyleSheet(f"color: {PENDING_COLOUR if pending else 'gray'}")
         self.keep_crest_button.setVisible(pending)

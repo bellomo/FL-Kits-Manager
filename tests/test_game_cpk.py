@@ -93,3 +93,10 @@ def test_cpk_files_are_opened_read_only(make_cpk, monkeypatch):
     monkeypatch.setattr("builtins.open", lambda f, mode="r", *a, **k: modes.append(mode) or real_open(f, mode, *a, **k))
     cpk.Cpk(make_cpk("a.cpk", FILES)).read("common/etc/pesdb/Team.bin")
     assert modes and set(modes) == {"rb"}
+
+
+def test_paths_are_found_whatever_their_case(make_cpk):
+    """the game has e_004308_R.png (Cadiz) where the others are e_<id>_r.png"""
+    archive = cpk.Cpk(make_cpk("a.cpk", {"flag/e_004308_R.png": b"crest"}))
+    assert archive.get("flag/e_004308_r.png").path == "flag/e_004308_R.png"
+    assert archive.read("flag/e_004308_r.png") == b"crest"

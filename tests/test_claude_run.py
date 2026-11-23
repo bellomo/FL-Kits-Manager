@@ -10,44 +10,12 @@ from pathlib import Path
 import pytest
 
 from flkm import claude_run
+from fake_claude import LIMITS_EVENT, RESET_5H, RESET_7D, FakeClaude, lines, result_event
 from flkm.claude_run import Limits, Task, Window
 
 ACCOUNT, RUN_TASK = claude_run.account, claude_run.run_task  # the real ones: conftest's no_claude replaces them
 
 T0 = datetime.datetime(2026, 11, 23, 15, 0, tzinfo=datetime.timezone.utc)
-RESET_5H, RESET_7D = 1795457400, 1795982400
-
-LIMITS_EVENT = {
-    "type": "rate_limit_event",
-    "rate_limit_info": {
-        "status": "allowed_warning",
-        "resetsAt": RESET_7D,
-        "rateLimitType": "seven_day",
-        "utilization": 0.25,
-        "unifiedWindows": {
-            "five_hour": {"utilization": 0.24, "resetsAt": RESET_5H, "status": "allowed"},
-            "seven_day": {"utilization": 0.25, "resetsAt": RESET_7D, "status": "allowed"},
-        },
-    },
-}
-USAGE = {"input_tokens": 2, "cache_creation_input_tokens": 4041, "cache_read_input_tokens": 649, "output_tokens": 4}
-
-
-def result_event(text="ok", error=False, **kw):
-    return {
-        "type": "result",
-        "subtype": "error_during_execution" if error else "success",
-        "is_error": error,
-        "result": text,
-        "total_cost_usd": 0.00082,
-        "usage": USAGE,
-        "modelUsage": {"claude-haiku-5-5": {}},
-        **kw,
-    }
-
-
-def lines(*events):
-    return "".join(json.dumps(e) + "\n" for e in events)
 
 
 class FakeRun:
@@ -113,6 +81,7 @@ def test_run_a_task(tmp_path):
         i = args.index(pair[0])
         assert args[i : i + 2] == pair
     assert "--verbose" in args and "--no-session-persistence" in args and kw["timeout"] == 60
+    assert "--allowedTools" not in args  # no tools, nothing to allow
 
 
 def test_run_with_tools_and_another_model(tmp_path):
@@ -121,6 +90,7 @@ def test_run_with_tools_and_another_model(tmp_path):
     done = RUN_TASK("c", task, tmp_path, model="opus", run=run, now=lambda: T0)
     args = run.calls[0][0]
     assert args[args.index("--tools") + 1] == "WebSearch,WebFetch" and args[args.index("--model") + 1] == "opus"
+    assert args[args.index("--allowedTools") + 1] == "WebSearch,WebFetch"  # -p has no one to ask: allowed beforehand
     assert done.limits is None  # no limits event
 
 
@@ -218,3 +188,28 @@ def test_events_that_are_not_objects_and_a_window_missing(tmp_path):
     run = FakeRun("[1, 2]\n" + lines(only_week, result_event("ok")))
     done = RUN_TASK("c", TASK, tmp_path, run=run, now=lambda: T0)
     assert done.limits.five_hour is None and done.limits.seven_day.utilization == 0.25
+
+
+def test_a_run_on_the_fake_claude_code(tmp_path):
+    """the whole stream the fake Claude Code prints, with its tool calls, read as the real one"""
+    fake = FakeClaude(answer="found it")
+    task = Task("logo", "Find a logo", "find it", "sonnet", ("WebSearch", "WebFetch"), 40000, 0.5, 300)
+    done = RUN_TASK("c", task, tmp_path, run=fake, now=lambda: T0)
+    assert done.text == "found it" and done.model == "claude-sonnet-5-5" and done.tokens == 4696 + 18000 + 800
+    assert done.limits.five_hour.utilization == 0.24 and fake.runs[0]["tools"] == ["WebSearch", "WebFetch"]
+    assert fake.runs[0]["allowed"] == ["WebSearch", "WebFetch"]
+    assert ACCOUNT("c", run=fake) == claude_run.Account(True, "Pro")
+    assert ACCOUNT("c", run=FakeClaude(knows_auth=False)) is None
+    assert FakeClaude()(["c", "--nope"]).returncode == 1
+
+
+def test_tools_denied_stop_the_run(tmp_path):
+    """when Claude Code denies the task's tools (the user's own settings), the run says so instead of answering"""
+    task = Task("logo", "Find a logo", "find it", "sonnet", ("WebSearch", "WebFetch"), 40000, 0.5, 300)
+    with pytest.raises(claude_run.ClaudeError) as e:
+        RUN_TASK("c", task, tmp_path, run=FakeClaude(deny=("WebFetch",)), now=lambda: T0)
+    assert str(e.value) == (
+        "Claude Code did not let Claude use WebFetch (permission denied), so the task could not be done. "
+        "Check the permissions in your Claude Code settings."
+    )
+    assert e.value.limits.five_hour.utilization == 0.24

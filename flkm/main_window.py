@@ -340,11 +340,14 @@ class MainWindow(QMainWindow):
             self.page.show_crest(image, f"New crest, not deployed yet: {Path(staged.source).name}", pending=True)
             self.page.crest_source.setToolTip(staged.source)
             return
-        found = logos.find_crest(self.catalog.files, team_id)
-        if found is None:
+        found = logos.find_crests(self.catalog.files, team_id)
+        if not found:
             self.page.show_crest(None, "No crest in the game files")
         else:
-            self.page.show_crest(logos.picture(found), found.file_name, folder=found.folder)
+            pictures = {v: logos.picture(f) for v, f in found.items()}
+            first, *others = found.values()
+            text = ", ".join([first.file_name, *(f.path.rsplit("/", 1)[-1] for f in others)])
+            self.page.show_crest(pictures.pop("", None), text, folder=first.folder, variants=pictures)
         self.page.crest_source.setToolTip("")
 
     def replace_crest(self) -> None:
@@ -357,6 +360,7 @@ class MainWindow(QMainWindow):
         except logos.LogoError as e:
             QMessageBox.warning(self, APP_NAME, str(e))
             return
+        files = logos.with_crest_variants(self.catalog.files, team.id, files)
         self.staging.add_logo(team.id, team.name, "crest", files, path)
         self._changes_made()
 
@@ -472,7 +476,10 @@ class MainWindow(QMainWindow):
             return None
         made, failed = logo_pack.logos_of(kit_pack, dialog.chosen(), source.name)
         for logo in made:
-            self.staging.add_logo(logo.owner, logo.name, logo.slot, logo.files, logo.source)
+            files = logo.files
+            if logo.slot == "crest":
+                files = logos.with_crest_variants(self.catalog.files, logo.owner, files)
+            self.staging.add_logo(logo.owner, logo.name, logo.slot, files, logo.source)
         if failed:
             QMessageBox.warning(self, APP_NAME, "Some logos were not added:\n" + "\n".join(failed[:20]))
         return len(made)

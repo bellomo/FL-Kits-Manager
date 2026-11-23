@@ -171,6 +171,8 @@ def run_task(
         "--max-budget-usd",
         f"{task.budget_usd:g}",
     ]
+    if task.tools:  # in -p mode no one answers a permission prompt: the task's own tools (only them) are allowed
+        args += ["--allowedTools", ",".join(task.tools)]
     try:
         done = run(
             args,
@@ -198,12 +200,22 @@ def run_task(
             raise ClaudeError(f"Claude stopped: {result.get('result') or result.get('subtype')}", limits)
         last = [s for s in (done.stderr or "").splitlines() if s.strip()]
         raise ClaudeError(f"Claude Code stopped: {last[-1]}" if last else "Claude Code stopped without saying why.")
+    denied = sorted({d.get("tool_name", "?") for d in result.get("permission_denials") or [] if isinstance(d, dict)})
+    if denied:
+        raise ClaudeError(
+            f"Claude Code did not let Claude use {', '.join(denied)} (permission denied), so the task could not be "
+            "done. Check the permissions in your Claude Code settings.",
+            limits,
+        )
     usage = result.get("usage", {})
     tokens = sum(
         int(usage.get(k, 0))
         for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
     )
-    used_model = next(iter(result.get("modelUsage", {})), model or task.model)
+    by_model = (
+        result.get("modelUsage") or {}
+    )  # Claude Code also uses Haiku (to read web pages): the main one costs most
+    used_model = max(by_model, key=lambda m: float((by_model[m] or {}).get("costUSD", 0)), default=model or task.model)
     return Done(
         task.kind, result.get("result", ""), used_model, tokens, float(result.get("total_cost_usd", 0)), when, limits
     )

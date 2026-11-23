@@ -13,7 +13,11 @@
 - Tests never touch the real game or the user's data: the autouse `home` fixture sets `FLKM_HOME` to a temporary
   folder, the `game` fixture gives an empty fake game folder. Game files in tests (sider.ini, map.txt, CPK, FTEX) are
   tiny ones the test builds itself. Never commit kits, logos or other game data.
-- Claude runs in tests are fakes (a function argument or a fake `claude` command): no test starts the real CLI.
+- Claude runs in tests are fakes: no test starts the real CLI. `tests/fake_claude.py` is a fake Claude Code that
+  answers what the real one answers (`--version`, `auth status --json`, the stream-json of `-p` with rate limits,
+  tool calls and result; like the real one it denies a tool not allowed with --allowedTools);
+  `use_fake_claude(monkeypatch, FakeClaude(answer=...))` makes the app find it and run its tasks on it through the
+  app's own code. When Claude Code changes its output, change the fake first.
 - `tests/conftest.py` blocks every outgoing connection except localhost (the `NETWORK-GUARD` marker) and makes Qt draw
   off screen. Never remove it, never run `pytest --noconftest`.
 - Before every commit run the whole suite with coverage. Coverage is 100% of lines and branches: this run fails below

@@ -52,7 +52,8 @@ socket.getaddrinfo = _guarded_getaddrinfo
 
 @pytest.fixture(autouse=True)
 def no_claude(monkeypatch):
-    """the tests never run the real Claude Code: nothing is found, and background work runs at once"""
+    """the tests never run the real Claude Code: nothing is found, and background work runs at once. A test that needs
+    Claude uses the fake Claude Code of fake_claude.py (it answers what the real one answers)"""
     from flkm import claude, claude_run, main_window
 
     def never(*a, **k):

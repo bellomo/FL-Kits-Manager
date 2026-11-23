@@ -97,13 +97,13 @@ class Cpk:
                     path = f"{folder}/{r['FileName']}" if folder else r["FileName"]
                     extract = r.get("ExtractSize") or r["FileSize"]
                     self.entries.append(Entry(path, r["FileOffset"] + shift, r["FileSize"], extract))
-        self._by_path = {e.path: e for e in self.entries}
+        self._by_path = {e.path.lower(): e for e in self.entries}  # some names differ in case only
 
     def get(self, path: str) -> Entry | None:
-        return self._by_path.get(path)
+        return self._by_path.get(path.lower())
 
     def read(self, path: str) -> bytes:
-        entry = self._by_path[path]
+        entry = self._by_path[path.lower()]
         with open(self.path, "rb") as f:
             f.seek(entry.offset)
             data = f.read(entry.size)

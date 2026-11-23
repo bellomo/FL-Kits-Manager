@@ -8,12 +8,15 @@ from pathlib import Path, PurePath
 
 import pytest
 from PIL import Image
-from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox
+from PySide6.QtCore import QEvent, QObject
+from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox, QWidget
 
 import flkm
 from conftest import build_ftex, buttons_without_tooltip, competition_record, dxt5_block, team_record, wesys
 from flkm import claude, claude_run, deploy, main_window, settings
 from flkm.claude_dialog import ClaudeRunDialog, limits_text
+from flkm.main_window import CHECK_TASK
+from fake_claude import RESET_5H, RESET_7D, FakeClaude, use_fake_claude
 from flkm.game import ftex, process
 from flkm.history_dialog import DeployHistoryDialog
 from flkm.import_dialog import ImportDialog
@@ -746,6 +749,41 @@ def test_kits_and_logos_waiting_are_counted_apart(qtbot, game, tmp_path, dialogs
     assert dialogs.asked[-1] == "Discard 1 kit and 1 logo waiting for Deploy?"
 
 
+def two_crests_game(game):
+    """the kit game where Bologna has no plain crest, only a dark and a white one"""
+    flag = crest_game(game) / "SiderAddons" / "livecpk" / "_World" / FLAG
+    (flag / "e_000186_r_l.png").unlink()
+    Image.new("RGBA", (256, 256), (0, 0, 0, 255)).save(flag / "e_000186_r_b_l.png")
+    Image.new("RGBA", (256, 256), (255, 255, 255, 255)).save(flag / "e_000186_r_w_l.png")
+    return game
+
+
+def test_a_crest_with_a_dark_and_a_white_version_is_shown_and_replaced(qtbot, game, tmp_path, dialogs, closed_game):
+    w = make_window(qtbot, game_dir=two_crests_game(game))
+    w.tree.select_team(186)
+    assert w.page.crest_source.text() == "e_000186_r_b_l.png, e_000186_r_w_l.png"
+    assert all(label.isVisibleTo(w.page) for label in w.page.crest_variants.values())
+    src = tmp_path / "bologna.png"
+    Image.new("RGBA", (300, 300), (0, 0, 200, 255)).save(src)
+    dialogs.file = str(src)
+    w.page.replace_crest_button.click()
+    assert not any(label.isVisibleTo(w.page) for label in w.page.crest_variants.values())  # one picture for all
+    w.deploy_action.trigger()
+    app = game / "SiderAddons" / "livecpk" / "FLKitsManager" / FLAG
+    assert sorted(p.name for p in app.iterdir()) == sorted(
+        f"e_000186_r{v}{size}.png" for v in ("", "_b", "_w") for size in ("", "_l", "_ll")
+    )
+
+
+def test_a_crest_imported_from_a_pack_replaces_both_versions(
+    qtbot, game, tmp_path, dialogs, accept_import, accept_logos
+):
+    w = make_window(qtbot, game_dir=two_crests_game(game))
+    w.import_pack(put_logos(make_pack(tmp_path)))
+    crest = w.staging.logo("crest", 186)
+    assert len(w.staging.logo_files(crest)) == 9
+
+
 def test_keep_the_current_crest(qtbot, game, tmp_path, dialogs):
     w = make_window(qtbot, game_dir=crest_game(game))
     w.tree.select_team(186)
@@ -1097,6 +1135,44 @@ def test_the_kits_made_last_time_are_there_to_view(qtbot, game, photo_dialogs, d
     assert photo_dialogs.opened[0].made.textures == {"p1": work_folder() / "home.png"}
 
 
+# --- no window of its own for a part of the page ----------------------------------------------------------------------
+
+
+class Opened(QObject):
+    """the widgets shown as a window of their own (a part of a page made visible before it is in the page flashes)"""
+
+    def __init__(self):
+        super().__init__()
+        self.seen = []
+
+    def eventFilter(self, o, e):
+        if e.type() == QEvent.Show and isinstance(o, QWidget) and o.isWindow() and not isinstance(o, MainWindow):
+            self.seen.append((type(o).__name__, o.text() if hasattr(o, "text") else ""))
+        return False
+
+
+def test_changing_team_or_competition_opens_no_other_window(qtbot, game, tmp_path, dialogs):
+    opened = Opened()
+    QApplication.instance().installEventFilter(opened)
+    try:
+        w = make_window(qtbot, game_dir=comp_game(game))
+        w.show()
+        w.tree.select_team(186)
+        dialogs.file = str(new_texture(tmp_path))
+        w.page.cards[0].replace_button.click()  # a kit waiting for Deploy: its other button is shown
+        w.show_team(186)
+        src = tmp_path / "logo.png"
+        Image.new("RGBA", (64, 64)).save(src)
+        dialogs.file = str(src)
+        w.show_competition(16)
+        w.comp_page.replace_all_button.click()
+        w.show_competition(16)
+        w.show_team(186)
+    finally:
+        QApplication.instance().removeEventFilter(opened)
+    assert opened.seen == []
+
+
 # --- Claude Code -----------------------------------------------------------------------------------------------------
 
 CLI = claude.Cli(Path("C:/tools/claude.exe"), "2.1.330", "desktop app")
@@ -1169,99 +1245,112 @@ def test_a_failure_while_checking_the_program_chosen(qtbot, dialogs, monkeypatch
     assert len(dialogs.warnings) == 1 and w.claude is None
 
 
-# --- Claude runs ------------------------------------------------------------------------------------------------------
+# --- Claude runs (on the fake Claude Code: tests/fake_claude.py) ------------------------------------------------------
 
-PRO = claude_run.Account(True, "Pro")
 NOW = datetime.datetime(2026, 11, 23, 15, 0, tzinfo=datetime.timezone.utc)
-LIMITS = claude_run.Limits(
-    claude_run.Window(0.24, NOW + datetime.timedelta(hours=2), "allowed"),
-    claude_run.Window(0.25, NOW + datetime.timedelta(days=3), "allowed"),
-    NOW,
-)
 
 
-def ready_window(qtbot, monkeypatch, account=PRO):
-    monkeypatch.setattr(claude, "find", lambda saved: CLI)
-    monkeypatch.setattr(claude_run, "account", lambda cli: account)
-    return make_window(qtbot)
+def ready_window(qtbot, monkeypatch, fake=None):
+    fake = fake or FakeClaude()
+    use_fake_claude(monkeypatch, fake, now=lambda: NOW)
+    return make_window(qtbot), fake
+
+
+def answer_runs(monkeypatch, run=True):
+    """the window before every run: answered Run (or Cancel); the windows shown"""
+    shown = []
+    monkeypatch.setattr(
+        ClaudeRunDialog, "exec", lambda d: shown.append(d) or (QDialog.Accepted if run else QDialog.Rejected)
+    )
+    return shown
 
 
 def test_the_status_bar_says_the_plan(qtbot, monkeypatch):
-    w = ready_window(qtbot, monkeypatch)
+    w, fake = ready_window(qtbot, monkeypatch)
     assert w.claude_label.text() == "Claude Code 2.1.330 · Pro" and w.check_limits_action.isEnabled()
+    assert [args[1:] for args, _ in fake.calls] == [["--version"], ["auth", "status", "--json"]]
+    assert "someone@example.com" not in repr(w.claude_account)  # nothing personal is kept
 
 
 def test_signed_out_claude_is_not_ready(qtbot, monkeypatch, dialogs):
-    w = ready_window(qtbot, monkeypatch, claude_run.Account(False, None))
+    w, fake = ready_window(qtbot, monkeypatch, FakeClaude(logged_in=False))
     assert w.claude_label.text() == "Claude Code 2.1.330 · not signed in"
     assert "Not signed in" in w.claude_label.toolTip() and not w.check_limits_action.isEnabled()
     w.check_limits()
-    assert dialogs.warnings == ["Claude Code is not ready: see the Claude menu."]
+    assert dialogs.warnings == ["Claude Code is not ready: see the Claude menu."] and fake.runs == []
 
 
 def test_choose_claude_code_reads_its_account(qtbot, dialogs, monkeypatch):
-    w = make_window(qtbot)
-    monkeypatch.setattr(claude, "check", lambda path: CLI)
-    monkeypatch.setattr(claude_run, "account", lambda cli: PRO)
+    w = make_window(qtbot)  # none found
+    use_fake_claude(monkeypatch, FakeClaude(plan="max"))
     dialogs.file = "C:/tools/claude.exe"
     w.choose_claude_action.trigger()
-    assert w.claude_account == PRO and w.claude_label.text().endswith("· Pro")
-
-
-class Runs:
-    """the run window answered, and claude_run.run_task replaced"""
-
-    def __init__(self, monkeypatch, answer=True, result=None, error=None):
-        self.shown, self.ran = [], []
-        accepted = QDialog.Accepted if answer else QDialog.Rejected
-        monkeypatch.setattr(ClaudeRunDialog, "exec", lambda d: self.shown.append(d) or accepted)
-
-        def run_task(cli, task, workdir, model=None):
-            self.ran.append((cli, task.kind, workdir, model))
-            if error:
-                raise error
-            return result
-
-        monkeypatch.setattr(claude_run, "run_task", run_task)
+    assert w.claude_account == claude_run.Account(True, "Max") and w.claude_label.text().endswith("· Max")
 
 
 def test_check_usage_limits(qtbot, monkeypatch, dialogs):
-    w = ready_window(qtbot, monkeypatch)
-    done = claude_run.Done("check", "ok", "claude-haiku-5-5", 4696, 0.0008, NOW, LIMITS)
-    runs = Runs(monkeypatch, result=done)
+    w, fake = ready_window(qtbot, monkeypatch)
+    shown = answer_runs(monkeypatch)
     w.check_limits_action.trigger()
-    assert runs.shown[0].what.text().startswith("Check how much of your Claude usage limits")
-    assert runs.ran == [(CLI.path, "check", settings.home() / "claude_work", "haiku")]
-    assert dialogs.infos == [f"Your Claude usage limits:\n\n{limits_text(LIMITS)}"]
+    assert shown[0].what.text().startswith("Check how much of your Claude usage limits")
+    assert fake.runs == [
+        {"model": "claude-haiku-5-5", "tools": [], "allowed": [], "budget": "0.05", "prompt": CHECK_TASK.prompt}
+    ]
+    assert fake.calls[-1][1]["cwd"] == settings.home() / "claude_work"
+    limits = claude_run.Limits(
+        claude_run.Window(0.24, datetime.datetime.fromtimestamp(RESET_5H, datetime.timezone.utc), "allowed"),
+        claude_run.Window(0.25, datetime.datetime.fromtimestamp(RESET_7D, datetime.timezone.utc), "allowed"),
+        NOW,
+    )
+    assert dialogs.infos == [f"Your Claude usage limits:\n\n{limits_text(limits)}"]
     assert w.statusBar().currentMessage() == "Claude finished: 4,696 tokens (claude-haiku-5-5)."
     assert [r.tokens for r in claude_run.runs(settings.home())] == [4696]  # logged
 
 
+def test_the_run_window_shows_the_limits_of_the_last_run(qtbot, monkeypatch, dialogs):
+    w, fake = ready_window(qtbot, monkeypatch, FakeClaude(five=0.86))
+    shown = answer_runs(monkeypatch)
+    w.check_limits()
+    w.check_limits()
+    assert "86%" in shown[1].limits.text() and shown[1].warning.text().startswith("The 5-hour limit was 86% used")
+
+
 def test_check_usage_limits_without_limits_said(qtbot, monkeypatch, dialogs):
-    w = ready_window(qtbot, monkeypatch)
-    Runs(monkeypatch, result=claude_run.Done("check", "ok", "m", 10, 0.0, NOW, None))
+    w, _ = ready_window(qtbot, monkeypatch)
+    answer_runs(monkeypatch)
+    monkeypatch.setattr(
+        claude_run,
+        "run_task",
+        lambda cli, task, workdir, model=None: claude_run.Done("check", "ok", "m", 10, 0.0, NOW, None),
+    )
     w.check_limits()
     assert dialogs.infos == ["Your Claude usage limits:\n\nClaude Code did not say them this time."]
 
 
 def test_a_run_cancelled_does_not_start(qtbot, monkeypatch, dialogs):
-    w = ready_window(qtbot, monkeypatch)
-    runs = Runs(monkeypatch, answer=False)
+    w, fake = ready_window(qtbot, monkeypatch)
+    shown = answer_runs(monkeypatch, run=False)
     w.check_limits()
-    assert runs.shown and runs.ran == [] and dialogs.infos == []
+    assert shown and fake.runs == [] and dialogs.infos == []
 
 
-def test_a_run_that_fails(qtbot, monkeypatch, dialogs):
-    w = ready_window(qtbot, monkeypatch)
-    Runs(
-        monkeypatch,
-        error=claude_run.ClaudeError("Your Claude usage limit (5 hours) is reached: it resets on 23/11 17:30."),
-    )
+def test_a_run_that_reaches_the_limit(qtbot, monkeypatch, dialogs):
+    w, fake = ready_window(qtbot, monkeypatch, FakeClaude(limit_reached=True))
+    answer_runs(monkeypatch)
     w.check_limits()
-    assert dialogs.warnings == ["Your Claude usage limit (5 hours) is reached: it resets on 23/11 17:30."]
+    reset = datetime.datetime.fromtimestamp(RESET_5H).strftime("%d/%m %H:%M")
+    assert dialogs.warnings == [f"Your Claude usage limit (5 hours) is reached: it resets on {reset}."]
     assert w.statusBar().currentMessage() == "Claude did not finish." and claude_run.runs(settings.home()) == []
 
 
+def test_a_run_that_cannot_start(qtbot, monkeypatch, dialogs):
+    w, fake = ready_window(qtbot, monkeypatch)
+    answer_runs(monkeypatch)
+    fake.fail = OSError("the file is gone")
+    w.check_limits()
+    assert dialogs.warnings == ["Claude Code could not be started: the file is gone"]
+
+
 def test_claude_with_an_account_it_cannot_tell(qtbot, monkeypatch):
-    w = ready_window(qtbot, monkeypatch, account=None)  # the account cannot be told: the run may go on
+    w, _ = ready_window(qtbot, monkeypatch, FakeClaude(knows_auth=False))  # the run may go on: it will say
     assert w.claude_label.text() == "Claude Code 2.1.330" and w.check_limits_action.isEnabled()
