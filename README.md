@@ -260,7 +260,7 @@ makes a tiny run (a one-word answer with Haiku) just to read the limits. The run
 | M4 | Import whole kits from kit packs, folder or zip (match by id and name); PNG and DDS images | ✅ [`2103776`](https://github.com/bellomo/FL-Kits-Manager/commit/2103776), [`0e554a2`](https://github.com/bellomo/FL-Kits-Manager/commit/0e554a2) |
 | M5 | Logos: view and replace crests and competition logos | ✅ [`942d72e`](https://github.com/bellomo/FL-Kits-Manager/commit/942d72e) |
 | M6 | Kits from photos loaded by the user (end-to-end script) | ✅ [`bbadf03`](https://github.com/bellomo/FL-Kits-Manager/commit/bbadf03), [`48e61f6`](https://github.com/bellomo/FL-Kits-Manager/commit/48e61f6), [`fce889d`](https://github.com/bellomo/FL-Kits-Manager/commit/fce889d) |
-| M7 | Claude: detection, usage estimate and warning | |
+| M7 | Claude: detection, account and plan, a window before every run (usage estimate, limits and warning), run log | ✅ [`5b506c7`](https://github.com/bellomo/FL-Kits-Manager/commit/5b506c7), [`9b552bc`](https://github.com/bellomo/FL-Kits-Manager/commit/9b552bc), [`4593542`](https://github.com/bellomo/FL-Kits-Manager/commit/4593542) |
 | M8 | Kits from photos found and reviewed by Claude | |
 | M9 | Release 0.1.0: tag `v0.1.0`, exe zip `FLKitsManager_v0.1.0.zip` on the GitHub releases page | |
 
