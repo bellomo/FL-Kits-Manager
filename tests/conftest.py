@@ -245,3 +245,36 @@ def game(tmp_path):
     g = tmp_path / "game"
     (g / "SiderAddons").mkdir(parents=True)
     return g
+
+
+def shirt_photo(
+    body=(200, 30, 40),
+    sleeve=None,
+    collar=(240, 200, 0),
+    bg=(255, 255, 255),
+    size=400,
+    stripes=(),
+    logos=(),
+):
+    """A flat product photo of a shirt (a PIL image): torso, sleeves and collar on a plain background, no real kit.
+    Fractions of the image: torso x 0.30-0.70 y 0.15-0.90, sleeves x 0.10-0.30 / 0.70-0.90 y 0.15-0.375, collar x
+    0.425-0.575 y 0.15-0.18. stripes: [(colour, x0, x1)] vertical bands down the torso below the collar; logos:
+    [(colour, (x0, y0, x1, y1))] solid boxes."""
+    import numpy as np
+    from PIL import Image
+
+    a = np.zeros((size, size, 3), np.uint8)
+    a[:] = bg
+
+    def box(x0, y0, x1, y1, colour):
+        a[int(y0 * size) : int(y1 * size), int(x0 * size) : int(x1 * size)] = colour
+
+    box(0.30, 0.15, 0.70, 0.90, body)
+    box(0.10, 0.15, 0.30, 0.375, sleeve or body)
+    box(0.70, 0.15, 0.90, 0.375, sleeve or body)
+    for colour, x0, x1 in stripes:
+        box(x0, 0.18, x1, 0.90, colour)
+    box(0.425, 0.15, 0.575, 0.18, collar)
+    for colour, (x0, y0, x1, y1) in logos:
+        box(x0, y0, x1, y1, colour)
+    return Image.fromarray(a)

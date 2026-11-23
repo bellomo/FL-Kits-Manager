@@ -247,6 +247,14 @@ Development rules (test-driven, 100% line and branch coverage, no network in tes
 | `flkm/game/ftex_write.py` | FTEX textures written from blocks, images (DXT5 with mips) and DDS files; kit textures |
 | `flkm/game/kits.py` | Which kits a team wears (kitserver folder or game files) |
 | `flkm/game/logos.py` | Team crests and competition logos: their game files, the one the game uses, new ones from a picture |
+| `flkm/photokit/photo.py` | Kits from photos: what a photo shows (from its file name), where the garment is on it |
+| `flkm/photokit/colour.py` | Hex colours, colours measured on a photo (body, sleeves, collar), contrast |
+| `flkm/photokit/logo.py` | Logos on a shirt photo (maker, crest, sponsors): found, cut out with their colours, measured |
+| `flkm/photokit/pattern.py` | Stripes, panels and blocks of a shirt from its photos, as rectangles of the texture |
+| `flkm/photokit/draft.py` | A team's `team.json` drafted from its photos: colours, logo positions, pattern |
+| `flkm/photokit/spec.py` | `team.json` expanded into one texture spec per kit: where each logo goes |
+| `flkm/photokit/texture.py` | A 2048x2048 kit texture painted from a spec (zones in `kit_zones.png`) |
+| `flkm/photokit/build.py` | The textures of a team folder in one call |
 | `tests/` | One test file per module, `test_rule_*.py` for repository rules |
 | `scripts/build.ps1` | Builds the one-folder exe and smoke-tests it (local hook and release) |
 | `scripts/hooks/post-commit` | Local build after every commit |

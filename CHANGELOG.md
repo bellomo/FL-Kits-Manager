@@ -49,3 +49,6 @@ Versions follow semver (`MAJOR.MINOR.PATCH`); the release zip is `FLKitsManager_
   every mip, or the DDS's own blocks when it has every mip) with the header of the kit they replace.
 - A bar (and Changes → Re-apply links) when a Mod Studio Build or another tool removed the app's block in `map.txt` or
   its root in `sider.ini`.
+- Kits from photos (M6, no window yet): the photo-to-texture steps of the Kits_foto tools moved into `flkm/photokit`
+  (photo, colour, logo, pattern, draft, spec, texture, build), with tests on generated photos; numpy is now a
+  dependency.

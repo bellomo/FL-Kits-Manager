@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Browse, replace, generate and deploy the kits and logos installed in SP Football Life 2027"
 requires-python = ">=3.12"
 license = "PolyForm-Noncommercial-1.0.0"
-dependencies = ["PySide6>=6.8", "Pillow>=11.2"]  # 11.2: DXT5 in DDS writing
+dependencies = ["PySide6>=6.8", "Pillow>=11.2", "numpy>=2.0"]  # Pillow 11.2: DXT5 in DDS writing; numpy: kits from photos
 
 [project.gui-scripts]
 flkm = "flkm.cli:main"
@@ -14,7 +14,10 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["flkm"]
+packages = ["flkm", "flkm.game", "flkm.photokit"]
+
+[tool.setuptools.package-data]
+"flkm.photokit" = ["kit_zones.png"]  # the texture zones (texture.py)
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
