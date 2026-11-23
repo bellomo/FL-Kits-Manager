@@ -152,7 +152,7 @@ def place_logos(team_dir: str, kit: str, parts: dict) -> tuple[dict, dict, list[
     return out, report, notes
 
 
-def _write_team(path: str, t: dict) -> None:
+def write_team_json(path: str, t: dict) -> None:
     """team.json with one line per kit (easy to compare and edit by hand)."""
     with open(path, "w", encoding="utf-8") as f:
         f.write("{\n")
@@ -202,5 +202,5 @@ def draft_team(team_dir: str, crest: str | None = None, maker: str | None = None
     out = os.path.join(team_dir, "team.json")
     if os.path.exists(out) and not force:
         out = os.path.join(team_dir, "team.draft.json")
-    _write_team(out, t)
+    write_team_json(out, t)
     return out, [k for k in ORDER if k not in kits], notes

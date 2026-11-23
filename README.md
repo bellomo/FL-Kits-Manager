@@ -255,6 +255,8 @@ Development rules (test-driven, 100% line and branch coverage, no network in tes
 | `flkm/photokit/spec.py` | `team.json` expanded into one texture spec per kit: where each logo goes |
 | `flkm/photokit/texture.py` | A 2048x2048 kit texture painted from a spec (zones in `kit_zones.png`) |
 | `flkm/photokit/build.py` | The textures of a team folder in one call |
+| `flkm/photokit/maker.py` | Makers' logos cut from photos, kept in `%APPDATA%\FLKitsManager\makers` and recognised by shape |
+| `flkm/photokit/team.py` | A team from its photos: crest from the game, maker from the cache, textures staged for Deploy |
 | `tests/` | One test file per module, `test_rule_*.py` for repository rules |
 | `scripts/build.ps1` | Builds the one-folder exe and smoke-tests it (local hook and release) |
 | `scripts/hooks/post-commit` | Local build after every commit |

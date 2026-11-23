@@ -52,3 +52,6 @@ Versions follow semver (`MAJOR.MINOR.PATCH`); the release zip is `FLKitsManager_
 - Kits from photos (M6, no window yet): the photo-to-texture steps of the Kits_foto tools moved into `flkm/photokit`
   (photo, colour, logo, pattern, draft, spec, texture, build), with tests on generated photos; numpy is now a
   dependency.
+- Kits from photos end to end (M6b, no window yet): the team's crest comes from the game, the maker's logo from the
+  photos goes to a cache of makers (`%APPDATA%\FLKitsManager\makers`, recognised by its shape on the next teams and
+  used on kits whose photo hides it), one texture per kit (p1, p2, p3, g1) staged for Deploy like Replace….
