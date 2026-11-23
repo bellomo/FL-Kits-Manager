@@ -10,6 +10,8 @@
 """
 
 import datetime
+import json
+import shutil
 
 import pytest
 
@@ -173,7 +175,7 @@ def test_undo_puts_back_everything_the_last_deploy_changed(game, home, tmp_path)
     assert (sider(game) / "content" / "kits" / "map.txt").read_bytes() == b"\xef\xbb\xbf" + MAP.encode()
     assert not (sider(game) / "livecpk" / "FLKitsManager").exists()
     assert not (sider(game) / "content" / "kits" / "FLKitsManager").exists()
-    assert list((home / "deploys").iterdir()) == []
+    assert [h.undone for h in deploy.history(home)] == [True]  # kept in the history, to re-apply
 
 
 def test_undo_goes_back_one_deploy_at_a_time(game, home, tmp_path):
@@ -182,7 +184,7 @@ def test_undo_goes_back_one_deploy_at_a_time(game, home, tmp_path):
     run(game, home, stage(home, tmp_path, (73947, "Aalborg Boldspilklub", "p2", NEWER)))
     deploy.undo(game, home, game_running=lambda: False)
     assert app_kit(game, "p2", "u73947p2.ftex").read_bytes() == NEW
-    assert deploy.history(home)[0].changes == 1
+    assert [h.undone for h in deploy.history(home)] == [True, False]
 
 
 def test_undo_with_nothing_deployed(game, home):
@@ -349,3 +351,163 @@ def _texture(home):
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_bytes(NEW)
     return p
+
+
+# --- history: go back, re-apply, clear ----------------------------------------------------------------------------
+
+
+def undo(game, home, **kw):
+    return deploy.undo(game, home, game_running=lambda: False, **kw)
+
+
+def installed(game):
+    return {p: p.read_bytes() for p in sider(game).rglob("*") if p.is_file() and ".bak-" not in p.name}
+
+
+def test_history_says_what_each_deploy_changed(game, home, tmp_path):
+    make_game(game)
+    s = stage(home, tmp_path, (186, "Bologna FC", "p1", NEW))
+    s.add_logo(186, "Bologna FC", "crest", CREST, "x.png")
+    run(game, home, s)
+    deploy.relink(game, home, game_running=lambda: False, today=TODAY)
+    links, kits = deploy.history(home)
+    assert kits.items == ("Bologna FC: Home", "Bologna FC: crest") and kits.size > 0
+    assert (kits.undone, kits.reapply) == (False, False)  # re-apply: only once undone
+    assert links.items == () and links.when == datetime.datetime.strptime(links.id[:15], "%Y%m%d-%H%M%S")
+
+
+def test_go_back_to_before_a_deploy_undoes_the_newer_ones_first(game, home, tmp_path):
+    make_game(game)
+    first = run(game, home, stage(home, tmp_path, (73947, "Aalborg Boldspilklub", "p2", NEW)))
+    run(game, home, stage(home, tmp_path, (73947, "Aalborg Boldspilklub", "p2", NEWER)))
+    run(game, home, stage(home, tmp_path, (186, "Bologna FC", "p1", NEW)))
+    done = undo(game, home, to=first.id)
+    assert len(done) == 3 and done[-1].id == first.id
+    assert all(h.undone for h in deploy.history(home))
+    assert (sider(game) / "sider.ini").read_bytes() == INI.encode()
+    assert not (sider(game) / "content" / "kits" / "FLKitsManager").exists()
+    with pytest.raises(deploy.NothingToUndo):
+        undo(game, home)
+
+
+def test_go_back_skips_the_deploys_already_undone(game, home, tmp_path):
+    make_game(game)
+    first = run(game, home, stage(home, tmp_path, (73947, "Aalborg Boldspilklub", "p2", NEW)))
+    run(game, home, stage(home, tmp_path, (186, "Bologna FC", "p1", NEW)))
+    undo(game, home)
+    run(game, home, stage(home, tmp_path, (73947, "Aalborg Boldspilklub", "p2", NEWER)))
+    assert len(undo(game, home, to=first.id)) == 2
+    assert not app_texture(game, "u0186p1.ftex").exists()
+    assert (sider(game) / "content" / "kits" / "map.txt").read_bytes() == b"\xef\xbb\xbf" + MAP.encode()
+
+
+def test_go_back_to_a_deploy_already_undone(game, home, tmp_path):
+    make_game(game)
+    first = run(game, home, stage(home, tmp_path, (186, "Bologna FC", "p1", NEW)))
+    undo(game, home)
+    with pytest.raises(deploy.NothingToUndo, match="already undone"):
+        undo(game, home, to=first.id)
+
+
+def test_undo_stops_when_another_tool_changed_a_file_after_the_deploy(game, home, tmp_path):
+    make_game(game)
+    run(game, home, stage(home, tmp_path, (73947, "Aalborg Boldspilklub", "p2", NEW)))
+    map_txt = sider(game) / "content" / "kits" / "map.txt"
+    map_txt.write_bytes(map_txt.read_bytes() + b"74000, x\n")  # a Mod Studio Build
+    app_kit(game, "p2", "u73947p2.ftex").unlink()  # removed by hand
+    with pytest.raises(deploy.FilesChanged) as e:
+        undo(game, home)
+    assert e.value.files == [
+        "content/kits/FLKitsManager/73947 Aalborg Boldspilklub/p2/u73947p2.ftex",
+        "content/kits/map.txt",
+    ]
+    assert (sider(game) / "content" / "kits" / "FLKitsManager").exists()  # nothing put back yet
+    undo(game, home, force=True)
+    assert map_txt.read_bytes() == b"\xef\xbb\xbf" + MAP.encode()
+
+
+def test_a_file_written_by_two_deploys_is_checked_against_the_newer(game, home, tmp_path):
+    make_game(game)
+    first = run(game, home, stage(home, tmp_path, (73947, "Aalborg Boldspilklub", "p2", NEW)))
+    run(game, home, stage(home, tmp_path, (73947, "Aalborg Boldspilklub", "p2", NEWER)))
+    assert len(undo(game, home, to=first.id)) == 2
+
+
+def test_a_file_a_deploy_removed_and_someone_put_back_is_a_change(game, home):
+    make_game(game)
+    run(game, home, stage_kits(home, (73947, "Aalborg Boldspilklub", "p2", "aab_away")))
+    run(game, home, stage_kits(home, (73947, "Aalborg Boldspilklub", "p2", "aab_away2")))
+    app_kit(game, "p2", "aab_away.ftex").write_bytes(NEW)  # the second deploy removed it
+    with pytest.raises(deploy.FilesChanged) as e:
+        undo(game, home)
+    assert e.value.files == ["content/kits/FLKitsManager/73947 Aalborg Boldspilklub/p2/aab_away.ftex"]
+
+
+def test_reapply_puts_the_changes_back_waiting_for_deploy(game, home, tmp_path):
+    make_game(game)
+    s = stage_kits(home, (73947, "Aalborg Boldspilklub", "p2", "aab_away"))
+    s.add(186, "Bologna FC", "p1", _texture(home))
+    s.add_logo(186, "Bologna FC", "crest", CREST, "x.png")
+    done = run(game, home, s)
+    after = installed(game)
+    undo(game, home)
+    assert deploy.history(home)[0].reapply
+    s = Staging(home / "staging")
+    s.add(186, "Bologna FC", "p1", _texture(home))  # staged since: the re-apply replaces it
+    back = deploy.reapply(home, done.id, s)
+    assert [(c.team_id, c.slot, c.kind) for c in back] == [
+        (73947, "p2", "kit"),
+        (186, "p1", "texture"),
+        (186, "crest", "logo"),
+    ]
+    assert len(Staging(home / "staging").changes) == 3
+    run(game, home, Staging(home / "staging"))
+    assert installed(game) == after
+
+
+def test_reapply_needs_an_undone_deploy_that_staged_changes(game, home, tmp_path):
+    make_game(game)
+    done = run(game, home, stage(home, tmp_path, (186, "Bologna FC", "p1", NEW)))
+    with pytest.raises(deploy.DeployError, match="still installed"):
+        deploy.reapply(home, done.id, Staging(home / "staging"))
+    undo(game, home)
+    links = deploy.relink(game, home, game_running=lambda: False, today=TODAY)
+    undo(game, home)
+    with pytest.raises(deploy.DeployError, match="nothing to re-apply"):
+        deploy.reapply(home, links.id, Staging(home / "staging"))
+
+
+def test_a_deploy_recorded_by_an_older_version(game, home, tmp_path):
+    make_game(game)
+    done = run(game, home, stage(home, tmp_path, (186, "Bologna FC", "p1", NEW)))
+    folder = home / "deploys" / done.id
+    m = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+    m = {k: m[k] for k in ("id", "changes", "files")}  # no state, no check, no files to re-apply
+    for f in m["files"]:
+        f.pop("after")
+    (folder / "manifest.json").write_text(json.dumps(m), encoding="utf-8")
+    shutil.rmtree(folder / "staged")
+    (sider(game) / "sider.ini").write_bytes(INI.encode() + b"; edited\r\n")
+    (h,) = deploy.history(home)
+    assert (h.undone, h.reapply, h.items) == (False, False, ("Bologna FC: Home",))
+    undo(game, home)  # no check of the files
+    assert not deploy.history(home)[0].reapply
+
+
+def test_clear_history_deletes_the_deploys_chosen_and_the_older_installed_ones(game, home, tmp_path):
+    make_game(game)
+    first = run(game, home, stage(home, tmp_path, (73947, "Aalborg Boldspilklub", "p2", NEW)))
+    second = run(game, home, stage(home, tmp_path, (73947, "Aalborg Boldspilklub", "p2", NEWER)))
+    third = run(game, home, stage(home, tmp_path, (186, "Bologna FC", "p1", NEW)))
+    undo(game, home)
+    fourth = run(game, home, stage(home, tmp_path, (186, "Bologna FC", "g1", NEW)))
+    hist = deploy.history(home)
+    assert deploy.to_clear(hist, {second.id}) == {first.id, second.id}  # the first cannot be undone without it
+    assert deploy.to_clear(hist, {third.id}) == {third.id}  # undone: on its own
+    assert deploy.to_clear(hist, {fourth.id}) == {first.id, second.id, fourth.id}
+    deploy.clear_history(home, {second.id, third.id})
+    assert [h.id for h in deploy.history(home)] == [fourth.id]
+    assert app_kit(game, "p2", "u73947p2.ftex").read_bytes() == NEWER  # the game files are not touched
+    undo(game, home)
+    with pytest.raises(deploy.NothingToUndo):
+        undo(game, home)

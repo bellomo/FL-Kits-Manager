@@ -54,8 +54,8 @@ A Windows app to manage the kits and logos installed in **SP Football Life 2027*
 The app ships no kits and no logos: it reads what is installed in your game and edits it.
 
 > Status: early development: browsing teams and kits, importing kits and logos from packs (folder or zip), replacing
-> a kit's texture with an `.ftex`, `.png` or `.dds` file, team crests and competition logos, Deploy and Undo work;
-> kits from photos come next. See the [roadmap](#roadmap).
+> a kit's texture with an `.ftex`, `.png` or `.dds` file, team crests and competition logos, kits from your own
+> photos, Deploy and Undo work; Claude (finding photos and logos on the web) comes next. See the [roadmap](#roadmap).
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -206,8 +206,15 @@ Changes → **Deploy to the game** (Ctrl+D) installs everything that is waiting,
   `livecpk\FLKitsManager`, which is put first in `sider.ini`;
 - `map.txt` and `sider.ini` get a `<file>.bak-<date>` copy before their first change of the day; the game's CPK files
   are never touched;
-- every file a deploy writes is recorded (with a copy of what was there) in `%APPDATA%\FLKitsManager\deploys`, and
-  Changes → **Undo last deploy** puts it back, one deploy at a time;
+- every file a deploy writes is recorded (with a copy of what was there, and the kits and logos it installed) in
+  `%APPDATA%\FLKitsManager\deploys`, and Changes → **Undo last deploy** puts it back; before putting back a file, the
+  app checks that no other tool (a Mod Studio Build, say) changed it since, and asks when one did;
+- Changes → **Deploy history…** lists every deploy, newest first, installed or undone:
+  - **Go back to before this…** undoes a deploy and every newer one still installed, newest first;
+  - **Re-apply** puts the kits and logos of an undone deploy back among the changes waiting for Deploy;
+  - **Clear history…** deletes the records of the deploys you tick (they can no longer be undone or re-applied; the
+    game files are not touched). Ticking a deploy still installed ticks the older installed ones too: going back to
+    them needs it;
 - the game must be closed (the app checks; when it cannot tell, it asks). Restart the game to see the changes.
 
 A Mod Studio Build rewrites `map.txt` and can drop the app's block (another tool can do the same to `sider.ini`): the
@@ -235,7 +242,7 @@ limits, and warns you when the run could use up what is left. Without Claude, ev
 | M3 | Staging, deploy, undo | ✅ [`6b99c15`](https://github.com/bellomo/FL-Kits-Manager/commit/6b99c15) |
 | M4 | Import whole kits from kit packs, folder or zip (match by id and name); PNG and DDS images | ✅ [`2103776`](https://github.com/bellomo/FL-Kits-Manager/commit/2103776), [`0e554a2`](https://github.com/bellomo/FL-Kits-Manager/commit/0e554a2) |
 | M5 | Logos: view and replace crests and competition logos | ✅ [`942d72e`](https://github.com/bellomo/FL-Kits-Manager/commit/942d72e) |
-| M6 | Kits from photos loaded by the user (end-to-end script) | |
+| M6 | Kits from photos loaded by the user (end-to-end script) | ✅ [`bbadf03`](https://github.com/bellomo/FL-Kits-Manager/commit/bbadf03), [`48e61f6`](https://github.com/bellomo/FL-Kits-Manager/commit/48e61f6), [`fce889d`](https://github.com/bellomo/FL-Kits-Manager/commit/fce889d) |
 | M7 | Claude: detection, usage estimate and warning, logos from the web | |
 | M8 | Kits from photos found and reviewed by Claude | |
 | M9 | Release 0.1.0: tag `v0.1.0`, exe zip `FLKitsManager_v0.1.0.zip` on the GitHub releases page | |
@@ -264,18 +271,19 @@ Development rules (test-driven, 100% line and branch coverage, no network in tes
 |---|---|
 | `flkm/cli.py` | Command line of the exe (`--game <folder>`, `--smoke-test`) |
 | `flkm/icon.py` | The app icon `flkm/flkm.ico` (exe and windows), made from `docs/images/flkm-logo.svg` with `python -m flkm.icon` |
-| `flkm/main_window.py` | Main window: game folder, team list, team page, Changes menu (Deploy, Undo, Re-apply) |
+| `flkm/main_window.py` | Main window: game folder, team list, team page, Changes menu (Deploy, Undo, history, Re-apply) |
+| `flkm/history_dialog.py` | Deploy history: every deploy, Go back to before this…, Re-apply, Clear history… |
 | `flkm/team_tree.py` | Team list: federation > country > league > team, search by name or id |
 | `flkm/team_page.py` | Team page: crest, details and kits, folded or unrolled, Replace…, Kits from photos… and kits waiting for Deploy |
 | `flkm/competition_tree.py` | Competition list: federation > country > competition, search by name, code or id |
 | `flkm/competition_page.py` | Competition page: the three variants of its logo on light and dark, Replace logo… |
-| `flkm/photo_kit_dialog.py` | Kits from photos dialog: photos added, dropped or pasted in boxes, kits made in the background, now and new |
+| `flkm/photo_kit_dialog.py` | Kits from photos dialog: photos added, dropped or pasted in boxes, kits made in the background, current and new |
 | `flkm/import_dialog.py` | Import dialog: the pack's team folders, the game team of each one, Choose team… |
 | `flkm/logo_import_dialog.py` | Logo import dialog: the pack's logos, a picture of each, where it goes, Choose… |
 | `flkm/pack.py` | Kit packs (folder or zip): team folders, their kits, map lines; matching with the game's teams |
 | `flkm/logo_pack.py` | Logos in a pack: by game file name or by team or competition name; the files of the chosen ones |
 | `flkm/staging.py` | Kits chosen to replace the game's (textures or whole kits), kept until Deploy (`%APPDATA%\FLKitsManager\staging`) |
-| `flkm/deploy.py` | Deploy, Undo, Re-apply links, status of the app's links, deploy history |
+| `flkm/deploy.py` | Deploy, Undo (back to any deploy, checking for files changed since), Re-apply an undone deploy, clear the history, Re-apply links, status of the app's links |
 | `flkm/render.py` | Kit pictures from a texture: unrolled, and folded (front and back as in the game) |
 | `flkm/settings.py` | Settings (`%APPDATA%\FLKitsManager\settings.json`): game folder, kit view, text size |
 | `flkm/__main__.py` | `python -m flkm` and the PyInstaller entry point |

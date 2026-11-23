@@ -72,3 +72,7 @@ Versions follow semver (`MAJOR.MINOR.PATCH`); the release zip is `FLKitsManager_
   is found too.
 - Every button has a tooltip that says what it does.
 - The app logo is the icon of the exe and of its windows (title bar, taskbar).
+- Deploy history (Changes → Deploy history…): every deploy, installed or undone; Go back to before a deploy (it and
+  the newer ones are undone, newest first); Re-apply an undone deploy (its kits and logos wait for Deploy again);
+  Clear history… deletes the records of the deploys ticked. Undo asks before putting back a file another tool
+  changed after the deploy. Each deploy now keeps the kits and logos it installed.

@@ -135,6 +135,27 @@ class Staging:
             self.changes.remove(c)
         self._save()
 
+    def keep_copy(self, folder: Path) -> None:
+        """copies the staged changes (list and files) to folder, a staging area of its own"""
+        copy = Staging(folder)
+        shutil.copytree(self.folder / "files", copy.folder / "files")
+        copy.changes = list(self.changes)
+        copy._save()
+
+    def take(self, folder: Path) -> list[Change]:
+        """stages the changes of another staging area (keep_copy), replacing what is staged for the same kits"""
+        other = Staging(folder)
+        for change in other.changes:
+            self._drop(change)
+            src, dst = other.path(change), self.path(change)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if src.is_dir():
+                shutil.copytree(src, dst)
+            else:
+                shutil.copy2(src, dst)
+            self._put(change)
+        return other.changes
+
     def clear(self) -> None:
         shutil.rmtree(self.folder / "files", ignore_errors=True)
         self.changes = []

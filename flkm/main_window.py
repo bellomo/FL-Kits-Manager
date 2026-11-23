@@ -35,6 +35,7 @@ from flkm import catalog, deploy, logo_pack, pack, settings
 from flkm.competition_page import CompetitionPage
 from flkm.competition_tree import CompetitionTree
 from flkm.game import ftex, kits, logos, process
+from flkm.history_dialog import DeployHistoryDialog, describe
 from flkm.import_dialog import ImportDialog
 from flkm.logo_import_dialog import LogoImportDialog
 from flkm.photo_kit_dialog import PhotoKitDialog
@@ -65,6 +66,11 @@ def _apply_text_size(size: int | None) -> None:
 
 def _kits(n: int) -> str:
     return f"{n} kit" if n == 1 else f"{n} kits"
+
+
+def _installed() -> list:
+    """the deploys still installed, newest first"""
+    return [d for d in deploy.history(settings.home()) if not d.undone]
 
 
 def _waiting(changes: list) -> str:
@@ -166,9 +172,13 @@ class MainWindow(QMainWindow):
         self.discard_action = QAction("Dis&card all changes", self)
         self.undo_action = QAction("&Undo last deploy", self)
         self.undo_action.setStatusTip("Put back the files the last deploy changed")
+        self.history_action = QAction("Deploy &history…", self)
+        self.history_action.setStatusTip(
+            "Every deploy: go back to before one, re-apply an undone one, clear the history"
+        )
         self.relink_action = QAction("&Re-apply links to the app's kits", self)
         self.relink_action.setStatusTip("Write again the app's lines in map.txt and its root in sider.ini")
-        for action in (self.deploy_action, self.discard_action, self.undo_action):
+        for action in (self.deploy_action, self.discard_action, self.undo_action, self.history_action):
             changes.addAction(action)
         changes.addSeparator()
         changes.addAction(self.relink_action)
@@ -186,6 +196,7 @@ class MainWindow(QMainWindow):
         self.deploy_action.triggered.connect(self.deploy_changes)
         self.discard_action.triggered.connect(self.discard_changes)
         self.undo_action.triggered.connect(self.undo_deploy)
+        self.history_action.triggered.connect(self.show_history)
         self.relink_action.triggered.connect(self.relink)
         self.relink_button.clicked.connect(self.relink)
         self.tree.team_selected.connect(self.show_team)
@@ -523,18 +534,79 @@ class MainWindow(QMainWindow):
             self._after_game_change(f"Deployed {what}. Restart the game to see {them}.")
 
     def undo_deploy(self) -> None:
-        last = deploy.history(settings.home())[0]
+        last = _installed()[0]
         what = _count(last.changes - last.logos, last.logos) if last.changes else "re-applied links"
         if not self._ask(f"Undo the last deploy ({what})? The files it changed are put back as they were."):
             return
-        undone = self._game_op(
-            "Undo",
-            lambda unknown_ok: deploy.undo(
-                self.game_dir, settings.home(), game_running=process.game_running, unknown_ok=unknown_ok
-            ),
-        )
-        if undone:
+        if self._undo(None):
             self._after_game_change("Last deploy undone. Restart the game to see the change.")
+
+    def _undo(self, to: str | None) -> list | None:
+        """undoes the deploys down to `to`; asks before putting back files another tool changed since"""
+
+        def op(unknown_ok: bool):
+            run = functools.partial(deploy.undo, self.game_dir, settings.home(), process.game_running, unknown_ok, to)
+            try:
+                return run()
+            except deploy.FilesChanged as e:
+                listing = "\n".join(e.files)
+                question = (
+                    f"These files changed after the deploy (another tool, like a Mod Studio Build, or by hand):"
+                    f"\n\n{listing}\n\nPut them back as they were before the deploy anyway? Those changes would be "
+                    "lost."
+                )
+                return run(force=True) if self._ask(question) else None
+
+        return self._game_op("Undo", op)
+
+    def show_history(self) -> None:
+        DeployHistoryDialog(
+            lambda: deploy.history(settings.home()), self.go_back, self.reapply_deploy, self.clear_deploys, self
+        ).exec()
+
+    def go_back(self, deploy_id: str) -> bool:
+        """undoes the deploy and the newer ones still installed (asks first)"""
+        if self.game_dir is None:
+            QMessageBox.warning(self, APP_NAME, "Choose the game folder first.")
+            return False
+        installed = _installed()
+        chosen = installed[: [d.id for d in installed].index(deploy_id) + 1]
+        listing = "\n".join(f"{d.when:%d/%m/%Y %H:%M}  {describe(d)}" for d in chosen)
+        n = len(chosen)
+        question = (
+            f"Undo {'this deploy' if n == 1 else f'these {n} deploys, newest first'}?\n\n{listing}\n\n"
+            "The files they changed are put back as they were. Re-apply brings their changes back."
+        )
+        if not self._ask(question) or not self._undo(deploy_id):
+            return False
+        self._after_game_change(f"{'Deploy' if n == 1 else f'{n} deploys'} undone. Restart the game to see the change.")
+        return True
+
+    def reapply_deploy(self, deploy_id: str) -> bool:
+        """the changes of an undone deploy wait for Deploy again"""
+        try:
+            back = deploy.reapply(settings.home(), deploy_id, self.staging)
+        except (deploy.DeployError, OSError) as e:
+            QMessageBox.warning(self, APP_NAME, f"Re-apply failed: {e}")
+            return False
+        self._changes_made()
+        self.statusBar().showMessage(f"{_waiting(back)} waiting for Deploy again.")
+        return True
+
+    def clear_deploys(self, chosen: set[str]) -> bool:
+        """deletes the records of the chosen deploys (and of the older installed ones), after asking"""
+        gone = deploy.to_clear(deploy.history(settings.home()), chosen)
+        n = len(gone)
+        question = (
+            f"Delete {'this deploy' if n == 1 else f'these {n} deploys'} from the history? They can no longer be "
+            "undone or re-applied; the game files are not touched. This cannot be undone."
+        )
+        if not self._ask(question):
+            return False
+        deploy.clear_history(settings.home(), gone)
+        self._update_changes()
+        self.statusBar().showMessage(f"{'1 deploy' if n == 1 else f'{n} deploys'} deleted from the history.")
+        return True
 
     def relink(self) -> None:
         done = self._game_op(
@@ -578,7 +650,8 @@ class MainWindow(QMainWindow):
         waiting = len(self.staging.changes)
         self.deploy_action.setEnabled(open_game and waiting > 0)
         self.discard_action.setEnabled(waiting > 0)
-        self.undo_action.setEnabled(open_game and bool(deploy.history(settings.home())))
+        self.undo_action.setEnabled(open_game and bool(_installed()))
+        self.history_action.setEnabled(bool(deploy.history(settings.home())))
         self.relink_action.setEnabled(open_game)
         self.import_folder_action.setEnabled(open_game)
         self.import_zip_action.setEnabled(open_game)

@@ -9,11 +9,14 @@ Where a kit goes:
 Crests and competition logos always go to livecpk/FLKitsManager/<game path>.
 
 Nothing is written while the game runs. map.txt and sider.ini get a <file>.bak-<date> copy before their first change
-of the day. Each deploy is recorded in <app data>/deploys/<id>: manifest.json lists every file it wrote and whether
-it existed, before/ keeps a copy of the ones that did; Undo uses them, newest deploy first.
+of the day. Each deploy is recorded in <app data>/deploys/<id>: manifest.json lists every file it wrote, whether it
+existed and what it holds after the deploy (a hash), before/ keeps a copy of the ones that existed, staged/ the
+changes it installed. Undo puts the files back, newest deploy first, after checking that no other tool changed them
+since; an undone deploy stays in the history, and Re-apply stages its changes again for the next Deploy.
 """
 
 import datetime
+import hashlib
 import json
 import re
 import shutil
@@ -45,12 +48,28 @@ class NothingToUndo(DeployError):
     pass
 
 
+class FilesChanged(DeployError):
+    """files a deploy wrote that another tool (or the user) changed since: Undo would lose those changes"""
+
+    def __init__(self, files: list[str]):
+        super().__init__("Changed since the deploy: " + ", ".join(files))
+        self.files = files  # paths below SiderAddons
+
+
 @dataclass(frozen=True)
 class Deployment:
     id: str
     changes: int  # staged kits and logos it installed (0 for a relink)
     files: int  # files it wrote
     logos: int = 0  # how many of the changes were logos
+    undone: bool = False
+    reapply: bool = False  # undone, with its changes kept: they can be staged again
+    items: tuple[str, ...] = ()  # what it installed: "<team>: <kit>"
+    size: int = 0  # bytes its record takes in the app data
+
+    @property
+    def when(self) -> datetime.datetime:
+        return datetime.datetime.strptime(self.id[:15], "%Y%m%d-%H%M%S")
 
 
 @dataclass(frozen=True)
@@ -240,10 +259,20 @@ def _new_id() -> str:
     return datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
 
 
+def _hash(path: Path) -> str | None:
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+
+
 def _finish(home: Path, journal: _Journal, deploy_id: str, changes: list[dict]) -> Deployment:
-    manifest = {"id": deploy_id, "changes": changes, "files": journal.files}
-    (journal.folder / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+    for entry in journal.files:  # what each file holds now: Undo checks that nobody changed it since
+        entry["after"] = _hash(journal.paths.sider / entry["path"])
+    manifest = {"id": deploy_id, "changes": changes, "files": journal.files, "undone": False}
+    _write_manifest(journal.folder, manifest)
     return Deployment(deploy_id, len(changes), len(journal.files), sum(c.get("kind") == "logo" for c in changes))
+
+
+def _write_manifest(folder: Path, manifest: dict) -> None:
+    (folder / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def deploy(
@@ -269,6 +298,7 @@ def deploy(
         for c in staging.changes
     ]
     result = _finish(home, journal, deploy_id, changes)
+    staging.keep_copy(journal.folder / "staged")  # for Re-apply after an Undo
     staging.clear()
     return result
 
@@ -301,13 +331,38 @@ def status(game_dir: Path) -> Status:
     )
 
 
+def _folder(home: Path, deploy_id: str) -> Path:
+    return Path(home) / "deploys" / deploy_id
+
+
+def _manifest(folder: Path) -> dict:
+    return json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+
+
+def _item(c: dict) -> str:
+    what = {"crest": "crest", "emblem": "logo"}.get(c["slot"]) or kits.slot_name(c["slot"])
+    return f"{c['team_name']}: {what}"
+
+
 def history(home: Path) -> list[Deployment]:
+    """every deploy recorded, newest first (undone ones too)"""
     folder = Path(home) / "deploys"
     out = []
     for d in sorted(folder.iterdir(), reverse=True) if folder.is_dir() else []:
-        m = json.loads((d / "manifest.json").read_text(encoding="utf-8"))
-        logo_count = sum(c.get("kind") == "logo" for c in m["changes"])
-        out.append(Deployment(m["id"], len(m["changes"]), len(m["files"]), logo_count))
+        m = _manifest(d)
+        undone = m.get("undone", False)
+        out.append(
+            Deployment(
+                m["id"],
+                len(m["changes"]),
+                len(m["files"]),
+                sum(c.get("kind") == "logo" for c in m["changes"]),
+                undone=undone,
+                reapply=undone and bool(m["changes"]) and (d / "staged").is_dir(),
+                items=tuple(_item(c) for c in m["changes"]),
+                size=sum(f.stat().st_size for f in d.rglob("*") if f.is_file()),
+            )
+        )
     return out
 
 
@@ -319,20 +374,17 @@ def _prune(path: Path, stop: set[Path]) -> None:
         parent = parent.parent
 
 
-def undo(
-    game_dir: Path,
-    home: Path,
-    game_running: Callable[[], bool | None] = process.game_running,
-    unknown_ok: bool = False,
-) -> Deployment:
-    """puts back what the last deploy (or relink) changed"""
-    done = history(home)
-    if not done:
-        raise NothingToUndo("Nothing to undo.")
-    _check(game_running, unknown_ok)
-    paths = _Paths(game_dir)
-    folder = Path(home) / "deploys" / done[0].id
-    manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+def _changed(paths: _Paths, manifests: list[dict]) -> list[str]:
+    """the files of the deploys to undo (newest first) that no longer hold what the newest of them wrote"""
+    expected: dict[str, str | None] = {}
+    for m in manifests:
+        for entry in m["files"]:
+            if "after" in entry:  # recorded by an older version of the app: nothing to check
+                expected.setdefault(entry["path"], entry["after"])
+    return sorted(rel for rel, after in expected.items() if _hash(paths.sider / rel) != after)
+
+
+def _put_back(paths: _Paths, folder: Path, manifest: dict) -> None:
     stop = {paths.kits, paths.sider / "livecpk", paths.sider}
     for entry in reversed(manifest["files"]):
         target = paths.sider / entry["path"]
@@ -342,5 +394,65 @@ def undo(
         else:
             target.unlink(missing_ok=True)
             _prune(target, stop)
-    shutil.rmtree(folder)
-    return done[0]
+    shutil.rmtree(folder / "before", ignore_errors=True)  # no longer needed: what stays is for Re-apply
+    _write_manifest(folder, {**manifest, "undone": True})
+
+
+def undo(
+    game_dir: Path,
+    home: Path,
+    game_running: Callable[[], bool | None] = process.game_running,
+    unknown_ok: bool = False,
+    to: str | None = None,
+    force: bool = False,
+) -> list[Deployment]:
+    """puts back what the deploys (and relinks) still installed changed, newest first, down to the deploy `to`
+    (default: the last one only). Raises FilesChanged, before writing anything, when another tool changed a file
+    since (force: put them back anyway). Returns the deploys undone."""
+    installed = [d for d in history(home) if not d.undone]
+    if to is None and installed:
+        to = installed[0].id
+    ids = [d.id for d in installed]
+    if to not in ids:
+        raise NothingToUndo("That deploy is already undone." if to else "Nothing to undo.")
+    chosen = installed[: ids.index(to) + 1]
+    _check(game_running, unknown_ok)
+    paths = _Paths(game_dir)
+    manifests = [_manifest(_folder(home, d.id)) for d in chosen]
+    changed = _changed(paths, manifests)
+    if changed and not force:
+        raise FilesChanged(changed)
+    for d, m in zip(chosen, manifests):
+        _put_back(paths, _folder(home, d.id), m)
+    return chosen
+
+
+def reapply(home: Path, deploy_id: str, staging: Staging) -> list:
+    """stages again the changes of an undone deploy (they replace what is staged for the same kits); returns them"""
+    folder = _folder(home, deploy_id)
+    m = _manifest(folder)
+    if not m.get("undone", False):
+        raise DeployError("That deploy is still installed: undo it first.")
+    if not m["changes"] or not (folder / "staged").is_dir():
+        raise DeployError("That deploy has nothing to re-apply.")
+    return staging.take(folder / "staged")
+
+
+def to_clear(deploys: list[Deployment], chosen: set[str]) -> set[str]:
+    """the deploys to delete from the history for the chosen ones: a deploy still installed takes with it the older
+    installed ones (going back to them needs it undone first)"""
+    out = set(chosen)
+    installed = [d.id for d in deploys if not d.undone]  # newest first
+    for i, d in enumerate(installed):
+        if d in chosen:
+            out.update(installed[i:])
+    return out
+
+
+def clear_history(home: Path, chosen: set[str]) -> set[str]:
+    """deletes the records of the chosen deploys (and what to_clear adds): they can no longer be undone or re-applied;
+    the game files are not touched. Returns the deploys deleted."""
+    gone = to_clear(history(home), chosen)
+    for deploy_id in gone:
+        shutil.rmtree(_folder(home, deploy_id))
+    return gone

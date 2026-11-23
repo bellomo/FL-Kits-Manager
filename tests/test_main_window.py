@@ -13,6 +13,7 @@ import flkm
 from conftest import build_ftex, buttons_without_tooltip, competition_record, dxt5_block, team_record, wesys
 from flkm import deploy, main_window, settings
 from flkm.game import ftex, process
+from flkm.history_dialog import DeployHistoryDialog
 from flkm.import_dialog import ImportDialog
 from flkm.logo_import_dialog import LogoImportDialog
 from flkm.main_window import MainWindow
@@ -221,6 +222,7 @@ def test_text_size_shortcuts(qtbot, app_font):
 
 TEX = "Asset/model/character/uniform/texture/#windx11/"
 OLD, NEW = build_ftex(4, 4, 4, [dxt5_block(0xF800)]), build_ftex(4, 4, 4, [dxt5_block(0x001F)])
+NEWER = build_ftex(4, 4, 4, [dxt5_block(0x07E0)])
 
 
 def kit_game(game):
@@ -420,6 +422,104 @@ def test_undo_last_deploy(qtbot, game, tmp_path, dialogs, closed_game):
     assert not app_texture(game).exists() and not w.undo_action.isEnabled()
     assert "_World" in w.page.folder_label.text()
     assert w.statusBar().currentMessage() == "Last deploy undone. Restart the game to see the change."
+
+
+def deploy_textures(w, tmp_path, *datas):
+    """one deploy of Bologna's home kit per texture given; returns the deploys, oldest first"""
+    for data in datas:
+        w.staging.add(186, "Bologna FC", "p1", new_texture(tmp_path, data))
+        w._update_changes()
+        w.deploy_action.trigger()
+    return list(reversed(deploy.history(settings.home())))
+
+
+def test_undo_asks_before_putting_back_a_file_another_tool_changed(qtbot, game, tmp_path, dialogs, closed_game):
+    w = bologna(qtbot, game)
+    deploy_textures(w, tmp_path, NEW)
+    app_texture(game).write_bytes(b"edited")
+    dialogs.answers = [True, False]  # undo: yes; put back the changed file: no
+    w.undo_action.trigger()
+    assert dialogs.asked[-1].startswith("These files changed after the deploy")
+    assert "livecpk/FLKitsManager/" in dialogs.asked[-1] and app_texture(game).read_bytes() == b"edited"
+    w.undo_action.trigger()  # yes and yes
+    assert not app_texture(game).exists()
+
+
+def test_deploy_history_opens_with_every_deploy(qtbot, game, tmp_path, dialogs, closed_game, monkeypatch):
+    w = bologna(qtbot, game)
+    assert not w.history_action.isEnabled()
+    deploy_textures(w, tmp_path, NEW)
+    shown = []
+    monkeypatch.setattr(DeployHistoryDialog, "exec", lambda d: shown.append(d.tree.topLevelItemCount()))
+    w.history_action.trigger()
+    assert shown == [1] and w.history_action.isEnabled()
+
+
+def test_go_back_to_before_a_deploy(qtbot, game, tmp_path, dialogs, closed_game):
+    w = bologna(qtbot, game)
+    first, second = deploy_textures(w, tmp_path, NEW, NEWER)
+    dialogs.answers = [False]
+    assert not w.go_back(first.id)
+    assert dialogs.asked[-1].startswith("Undo these 2 deploys, newest first?\n\n")
+    assert "Bologna FC: Home" in dialogs.asked[-1] and app_texture(game).read_bytes() == NEWER
+    assert w.go_back(first.id)
+    assert not app_texture(game).exists() and not w.undo_action.isEnabled()
+    assert w.statusBar().currentMessage() == "2 deploys undone. Restart the game to see the change."
+
+
+def test_go_back_one_deploy(qtbot, game, tmp_path, dialogs, closed_game):
+    w = bologna(qtbot, game)
+    first, second = deploy_textures(w, tmp_path, NEW, NEWER)
+    assert w.go_back(second.id) and app_texture(game).read_bytes() == NEW
+    assert dialogs.asked[-1].startswith("Undo this deploy?")
+    assert w.statusBar().currentMessage() == "Deploy undone. Restart the game to see the change."
+
+
+def test_go_back_while_the_game_runs(qtbot, game, tmp_path, dialogs, closed_game):
+    w = bologna(qtbot, game)
+    (first,) = deploy_textures(w, tmp_path, NEW)
+    closed_game["running"] = True
+    assert not w.go_back(first.id) and app_texture(game).read_bytes() == NEW
+
+
+def test_go_back_without_a_game(qtbot, game, tmp_path, dialogs, closed_game):
+    w = bologna(qtbot, game)
+    (first,) = deploy_textures(w, tmp_path, NEW)
+    w.game_dir = None
+    w._update_changes()
+    assert w.history_action.isEnabled() and not w.go_back(first.id)
+    assert dialogs.warnings == ["Choose the game folder first."]
+
+
+def test_reapply_an_undone_deploy(qtbot, game, tmp_path, dialogs, closed_game):
+    w = bologna(qtbot, game)
+    (first,) = deploy_textures(w, tmp_path, NEW)
+    assert not w.reapply_deploy(first.id)  # still installed
+    assert dialogs.warnings == ["Re-apply failed: That deploy is still installed: undo it first."]
+    w.undo_action.trigger()
+    assert w.reapply_deploy(first.id)
+    assert w.page.cards[0].pending and w.deploy_action.isEnabled()
+    assert w.statusBar().currentMessage() == "1 kit waiting for Deploy again."
+
+
+def test_clear_history(qtbot, game, tmp_path, dialogs, closed_game):
+    w = bologna(qtbot, game)
+    first, second = deploy_textures(w, tmp_path, NEW, NEWER)
+    dialogs.answers = [False]
+    assert not w.clear_deploys({second.id})
+    assert dialogs.asked[-1].startswith("Delete these 2 deploys from the history?")
+    assert w.clear_deploys({second.id})
+    assert deploy.history(settings.home()) == [] and not w.undo_action.isEnabled()
+    assert not w.history_action.isEnabled() and app_texture(game).read_bytes() == NEWER
+    assert w.statusBar().currentMessage() == "2 deploys deleted from the history."
+
+
+def test_clear_one_undone_deploy(qtbot, game, tmp_path, dialogs, closed_game):
+    w = bologna(qtbot, game)
+    first, second = deploy_textures(w, tmp_path, NEW, NEWER)
+    w.undo_action.trigger()
+    assert w.clear_deploys({second.id}) and dialogs.asked[-1].startswith("Delete this deploy")
+    assert w.statusBar().currentMessage() == "1 deploy deleted from the history."
 
 
 def test_links_lost_after_a_mod_studio_build_are_shown_and_reapplied(qtbot, game, tmp_path, dialogs, closed_game):
