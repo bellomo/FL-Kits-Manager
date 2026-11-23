@@ -57,3 +57,5 @@
 - Core logic (`flkm/` modules without Qt) stays separate from the widgets, so it is tested without a window.
 - Claude is optional: every feature that does not need it (view, manual replace, kits from photos the user loads,
   deploy) works without the Claude Code CLI.
+- Every button has a tooltip that says what it does (and what it does not touch, when that matters). Each widget's
+  test file checks it with `conftest.buttons_without_tooltip`.

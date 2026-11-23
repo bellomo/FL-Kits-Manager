@@ -4,6 +4,7 @@ the others wait for the user to check them or choose the team (by id or name).""
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialogButtonBox, QInputDialog, QMessageBox
 
+from conftest import buttons_without_tooltip
 from flkm.catalog import Team
 from flkm.import_dialog import ImportDialog
 from flkm.pack import Match, PackTeam
@@ -127,3 +128,7 @@ def test_choose_without_a_selected_row_does_nothing(qtbot, monkeypatch):
 def test_folder_at_the_root_of_the_pack(qtbot):
     d = make(qtbot, [Match(PackTeam("", "", ("p1",), None), None, "none", False, "no team with this id or name")])
     assert cell(d, 0, 1) == "(the pack itself)"
+
+
+def test_every_button_has_a_tooltip(qtbot):
+    assert buttons_without_tooltip(make(qtbot)) == []

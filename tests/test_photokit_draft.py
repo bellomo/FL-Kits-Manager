@@ -7,6 +7,7 @@ from PIL import Image
 
 from conftest import shirt_photo
 from flkm.photokit import PhotoKitError, draft
+from flkm.photokit.colour import colour_distance
 
 RED, BLACK, YELLOW, WHITE, BLUE = (200, 30, 40), (20, 20, 20), (240, 200, 0), (255, 255, 255), (30, 70, 160)
 CREAM = (240, 230, 190)  # a white shirt on a white background would be background
@@ -96,6 +97,48 @@ def test_draft_team_measures_everything(team):
     assert any("away: maker NOT FOUND, crest NOT FOUND" in n for n in notes)
     with open(out, encoding="utf-8") as f:
         assert f.read().count("\n") == 9  # one line per kit
+
+
+def test_draft_team_with_the_colours_of_the_front_or_the_back_photo(team):
+    photo(body=(130, 20, 25), logos=[(WHITE, (0.40, 0.30, 0.60, 0.36))]).save(team / "ref" / "back_home.png")
+    out, _, notes = draft.draft_team(str(team), force=True)
+    home = read(out)["kits"]["home"]
+    assert [0, 1012] in [r["y"] for r in home["rects"] if r["x"] == [650, 1330]] and "tone" not in home["_draft"]
+    out, _, notes = draft.draft_team(str(team), force=True, tones={"home": "front", "gk": "back"})
+    home = read(out)["kits"]["home"]
+    assert [0, 1012] not in [r["y"] for r in home["rects"] if r["x"] == [650, 1330]] and home["body"] == "#c81e28"
+    assert home["_draft"]["tone"] == "front" and "home: the colours of the front photo" in notes
+    assert "tone" not in read(out)["kits"]["gk"]["_draft"]  # no back photo: nothing to choose
+    out, _, notes = draft.draft_team(str(team), force=True, tones={"home": "back"})
+    home = read(out)["kits"]["home"]
+    assert colour_distance(home["body"], "#82141a") < 12 and home["sleeve"] == home["body"]
+    assert home["shorts"] == "#141414"  # measured on its own photo: not in the back's tone
+    assert colour_distance(home["socks"], "#ffffff") < 1 and home["_draft"]["tone"] == "back"
+    assert "home: the colours of the back photo" in notes
+
+
+def test_apply_tone_follows_the_deduced_parts():
+    kit = {"body": "#c81e28", "sleeve": "#c81e28", "cuff": "#f0c800", "collar": "#f0c800", "shorts": "#c81e28"}
+    kit.update(socks="#c81e28", maker_color="#f0c800", numbers="#f0c800")
+    kit["_draft"] = {"deduced": ["shorts", "socks"], "secondary": "#f0c800"}
+    draft.apply_tone(kit, (0.5, 0.5, 0.5))
+    assert (kit["body"], kit["cuff"], kit["shorts"], kit["socks"]) == ("#640f14", "#786400", "#640f14", "#640f14")
+    assert kit["_draft"]["secondary"] == "#786400" and kit["numbers"] == kit["maker_color"] == "#ffffff"  # unreadable
+    kit = {"body": "#ffffff", "sleeve": "#ffffff", "cuff": "#ffffff", "collar": "#ffffff", "shorts": "#000000"}
+    kit.update(socks="#000000", _draft={"deduced": [], "secondary": None})
+    draft.apply_tone(kit, (0.5, 0.5, 0.5))
+    assert kit["shorts"] == "#000000" and kit["numbers"] == "#111111"  # the more readable of white or black
+
+
+def test_draft_team_leaves_the_player_name_and_number_out_of_the_back(team):
+    name, under = (WHITE, (0.42, 0.22, 0.58, 0.26)), (WHITE, (0.42, 0.65, 0.58, 0.70))
+    digits = [(WHITE, (0.40, 0.30, 0.48, 0.55)), (WHITE, (0.52, 0.30, 0.60, 0.55))]
+    photo(logos=[name, *digits, under]).save(team / "ref" / "back_home.png")
+    out, _, notes = draft.draft_team(str(team), force=True)
+    home = read(out)["kits"]["home"]
+    assert len(home["back_logos"]) == 1 and home["back_logos"][0]["cy"] > 0.6  # the sponsor only
+    assert not [r for r in home["rects"] if r["color"] == "#ffffff"]  # the digits are not white stripes
+    assert "home: player name and number left out of the back photo" in notes
 
 
 def test_draft_team_keeps_an_existing_team_json(team):

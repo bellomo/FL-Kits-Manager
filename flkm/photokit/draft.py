@@ -10,7 +10,7 @@ import json
 import os
 
 from flkm.photokit import PhotoKitError
-from flkm.photokit.colour import colour_distance, readable_colour, secondary_colour, measure_folder
+from flkm.photokit.colour import apply_gain, colour_distance, measure_folder, readable_colour, secondary_colour
 from flkm.photokit.logo import candidates_path, cut_logos, logo_role, share_inside
 from flkm.photokit.pattern import read_kit_pattern
 from flkm.photokit.photo import photo_side
@@ -64,6 +64,17 @@ def draft_kit(parts: dict) -> dict | None:
     }
 
 
+def apply_tone(kit: dict, gain) -> None:
+    """The colours drafted from the shirt photo (body, sleeves, collar, cuffs, and the parts deduced from them) in the
+    back photo's tone; shorts and socks measured on their own photos stay."""
+    deduced = kit["_draft"]["deduced"]
+    for key in ("body", "sleeve", "cuff", "collar") + tuple(p for p in ("shorts", "socks") if p in deduced):
+        kit[key] = apply_gain(kit[key], gain)
+    sec = kit["_draft"]["secondary"]
+    sec = kit["_draft"]["secondary"] = apply_gain(sec, gain) if sec else None
+    kit["maker_color"] = kit["numbers"] = readable_colour(kit["body"], sec)
+
+
 def _candidates(team_dir: str, photo: str) -> list[dict]:
     """Measured logo candidates of ref\\<photo> (cut first if not done yet), roles filled in for old json files. A
     joined logo (_jNN) replaces the raw candidates it overlaps."""
@@ -89,9 +100,10 @@ def _placed(m: dict) -> dict:
     return {"file": "logos/" + m["file"], "tx": m["tx"], "tw": m["tw"], "cy": m["cy"]}
 
 
-def place_logos(team_dir: str, kit: str, parts: dict) -> tuple[dict, dict, list[str]]:
+def place_logos(team_dir: str, kit: str, parts: dict, tone: str = "auto") -> tuple[dict, dict, list[str]]:
     """(team.json entries, report, notes) for one kit: maker (the photo's graphic), crest position (the crest file
-    stays the game's), chest and back sponsors, body stripes and panels, all as measured on the photos of the kit."""
+    stays the game's), chest and back sponsors, body stripes and panels, all as measured on the photos of the kit;
+    tone: which photo gives the colours (pattern.read_kit_pattern), the report's "gain" puts the others in it."""
     out = {}
     front = _candidates(team_dir, parts["shirt"][0]["file"])
     makers = [m for m in front if m["role"] == "maker"]
@@ -104,8 +116,10 @@ def place_logos(team_dir: str, kit: str, parts: dict) -> tuple[dict, dict, list[
     sp = sorted((m for m in front if m["role"] == "sponsor"), key=lambda m: m["cy"])
     if sp:
         out["chest_logos"] = [_placed(m) for m in sp]
+    skip = []
     if parts.get("back"):
         back = _candidates(team_dir, parts["back"][0]["file"])
+        skip = [m["box"] for m in back if m["role"] == "player"]  # put on by the game for each player
         bk = sorted((m for m in back if m["role"] == "sponsor"), key=lambda m: m["cy"])
         if bk:
             out["back_logos"] = [_placed(m) for m in bk]
@@ -123,7 +137,7 @@ def place_logos(team_dir: str, kit: str, parts: dict) -> tuple[dict, dict, list[
     # stays the measured one (the pattern's median follows the shading: grey on white shirts)
     ref = os.path.join(team_dir, "ref")
     back_photo = os.path.join(ref, parts["back"][0]["file"]) if parts.get("back") else None
-    pat = read_kit_pattern(os.path.join(ref, parts["shirt"][0]["file"]), back_photo)
+    pat = read_kit_pattern(os.path.join(ref, parts["shirt"][0]["file"]), back_photo, tone, skip)
     if pat["rects"]:
         out["rects"] = pat["rects"]
     report = {
@@ -133,6 +147,7 @@ def place_logos(team_dir: str, kit: str, parts: dict) -> tuple[dict, dict, list[
         "back": len(out.get("back_logos", [])),
         "check": check,
         "rects": len(pat["rects"]),
+        "gain": [round(g, 4) for g in pat["gain"]],
     }
     notes = [
         "%s: maker %s, crest %s, %d chest sponsor(s), %d back sponsor(s), %d stripe/panel rect(s)"
@@ -145,6 +160,10 @@ def place_logos(team_dir: str, kit: str, parts: dict) -> tuple[dict, dict, list[
             report["rects"],
         )
     ]
+    if skip:
+        notes.append(f"{kit}: player name and number left out of the back photo")
+    if back_photo and tone != "auto":
+        notes.append(f"{kit}: the colours of the {tone} photo")
     if check:
         notes.append(
             "%s: check %s, probably a sponsor split or crossed by lines (join the candidates)" % (kit, ", ".join(check))
@@ -165,16 +184,23 @@ def write_team_json(path: str, t: dict) -> None:
         f.write("\n }\n}\n")
 
 
-def draft_team(team_dir: str, crest: str | None = None, maker: str | None = None, force: bool = False):
+def draft_team(
+    team_dir: str, crest: str | None = None, maker: str | None = None, force: bool = False, tones: dict | None = None
+):
     """Writes team.json (team.draft.json if team.json exists, unless force) from the photos of team_dir\\ref; returns
-    (the file written, the kits missing, notes). Raises PhotoKitError when there is no shirt photo."""
+    (the file written, the kits missing, notes); tones: kit -> which photo gives the colours ("auto", "front",
+    "back"; see pattern.read_kit_pattern). Raises PhotoKitError when there is no shirt photo."""
     res = measure_folder(os.path.join(team_dir, "ref"))
     kits, notes = {}, []
     for k in ORDER:
         kd = draft_kit(res.get(k, {}))
         if kd:
-            found, kd["_draft"]["auto"], kit_notes = place_logos(team_dir, k, res[k])
+            tone = (tones or {}).get(k, "auto")
+            found, kd["_draft"]["auto"], kit_notes = place_logos(team_dir, k, res[k], tone)
             kd.update(found)
+            if res[k].get("back") and tone != "auto":
+                kd["_draft"]["tone"] = tone
+                apply_tone(kd, kd["_draft"]["auto"]["gain"])
             notes += kit_notes
             kits[k] = kd
     if not kits:

@@ -105,3 +105,11 @@ def test_measure_folder(tmp_path):
     shirt = res["home"]["shirt"][0]
     assert shirt["file"] == "h1.png" and near(shirt["zones"]["sleeve"], "#141414")
     assert "zones" not in res["home"]["shorts"][0] and near(res["home"]["shorts"][0]["colours"][0][0], "#1f4c9c")
+
+
+def test_tone_gain_and_apply_gain():
+    gain = colour.tone_gain("#c81e28", "#821419")  # the same red, darker on the other photo
+    assert [round(g, 2) for g in gain] == [0.65, 0.67, 0.62]
+    assert colour.apply_gain("#c81e28", gain) == "#821419"
+    assert colour.apply_gain("#ffffff", colour.tone_gain("#808080", "#c0c0c0")) == "#ffffff"  # not above 255
+    assert colour.tone_gain("#000000", "#101010") == (1.0, 1.0, 1.0)  # black tells nothing about the tone

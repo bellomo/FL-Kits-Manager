@@ -14,9 +14,11 @@ if (Get-Process FLKitsManager -ErrorAction SilentlyContinue) {
 }
 
 $root = (Get-Location).Path
-# kit_zones.png: the texture zones of kits from photos (flkm\photokit\texture.py)
+# kit_zones.png: the texture zones of kits from photos (flkm\photokit\texture.py); flkm.ico: the app icon, of the exe
+# and of its windows (flkm\icon.py)
 & $Python -m PyInstaller --noconfirm --clean --windowed --onedir --name FLKitsManager --paths $root `
     --add-data "$root\flkm\photokit\kit_zones.png;flkm\photokit" `
+    --icon "$root\flkm\flkm.ico" --add-data "$root\flkm\flkm.ico;flkm" `
     --distpath "$root\dist" --workpath "$root\build" --specpath "$root\build" "$root\flkm\__main__.py"
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed (exit code $LASTEXITCODE)" }
 

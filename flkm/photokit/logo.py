@@ -146,6 +146,25 @@ def _drop_unions_and_fragments(cands: list[dict], share: float = 0.7) -> list[di
     return [c for i, c in enumerate(cands) if i not in union and i not in frag]
 
 
+def _islands(a: np.ndarray, g: np.ndarray, pal, thr: int, t0: int, t1: int, share: float = 0.2) -> np.ndarray:
+    """Pixels of a fabric colour that is rare on the torso (dark sleeves), in pieces that touch neither the sleeves nor
+    the garment's outline: marks of that colour printed on the torso (Alcione away: a black number and sponsor on a
+    khaki back with black sleeves), not fabric."""
+    cls = np.argmin([np.abs(a.astype(int) - np.array(p)).sum(2) for p in pal], axis=0)
+    torso = g.copy()
+    torso[:, :t0] = False
+    torso[:, t1:] = False
+    rare = [i for i in range(len(pal)) if ((cls == i) & torso).sum() < share * torso.sum()]
+    near = g & np.isin(cls, rare) & (_distance_to(a, pal) <= thr)
+    edge = g & ~(np.array(Image.fromarray(g.astype(np.uint8) * 255).filter(ImageFilter.MinFilter(5))) > 0)
+    fabric = edge | (g & ~torso)
+    out = np.zeros_like(g)
+    for comp in _components(near, 0):
+        if not (comp & fabric).any():
+            out |= comp
+    return out
+
+
 def analyse_garment(im: Image.Image, mode: str = "spread", thr: int = 90) -> dict:
     """Analysis at WORK size: logo mask (pixels far from the fabric colours) and garment geometry. mode 'spread':
     fabric = colours spread over the shirt; 'big': only the big colours."""
@@ -160,17 +179,19 @@ def analyse_garment(im: Image.Image, mode: str = "spread", thr: int = 90) -> dic
     spread, big = find_fabric_colours(a), find_fabric_colours(a, min_share=0.2, min_spread=0)
     pal = spread if mode == "spread" else big
     logo = g & (_distance_to(a, pal) > thr)
+    t0, t1 = find_torso_edges(g, x0, x1, y0, y1)
     # pixels where two fabric colours meet (stripe edges, panel borders) are blends, not logos, unless they are very
     # far from every fabric colour
     cls = np.argmin([np.abs(a.astype(int) - np.array(p)).sum(2) for p in pal], axis=0).astype(np.uint8)
     ci = Image.fromarray(cls)
     seam = np.array(ci.filter(ImageFilter.MaxFilter(7))) != np.array(ci.filter(ImageFilter.MinFilter(7)))
     logo &= ~(seam & (_distance_to_blends(a, pal) < thr * 0.4))
+    if mode == "big":  # after the seams: thin letters of a fabric colour are all seam
+        logo |= _islands(a, g, pal, thr, t0, t1)
     # remove a rim along the garment outline (anti-aliasing, shading, folds on the edges)
     rim = max(7, (int(0.03 * (x1 - x0)) // 2) * 2 + 1)
     inner = np.array(Image.fromarray(g.astype(np.uint8) * 255).filter(ImageFilter.MinFilter(rim))) > 0
     logo &= inner
-    t0, t1 = find_torso_edges(g, x0, x1, y0, y1)
     return dict(
         im=im,
         a=a,
@@ -338,6 +359,48 @@ def logo_role(c: dict, side: str = "front") -> str:
     return "sponsor" if abs(tx - 0.5) <= 0.12 and cy >= 0.25 else "other"
 
 
+NUMBER_H = (0.12, 0.6)  # height of a player's number on a back photo (fraction of the garment height)
+
+
+def _is_digit(c: dict) -> bool:
+    """A digit of a player's number, or the whole number: tall, around the middle of the back, not a stripe."""
+    return (
+        NUMBER_H[0] <= c["h"] <= NUMBER_H[1]
+        and 0.15 <= c["cy"] <= 0.7
+        and abs(c["tx"] - 0.5) <= 0.3
+        and (c["w"] <= 1.6 * c["h"])
+    )
+
+
+def find_digits(im: Image.Image, join: int = 9, min_area: float = 0.0004) -> list[dict]:
+    """The digits of a player's number on a back photo. find_logos takes them for panels (tall pieces of one plain
+    colour) and leaves them out, so they are looked for on their own."""
+    ctx = analyse_garment(im, "big")
+    garea = ctx["g"].sum()
+    comps = [comp for comp in _components(ctx["logo"], join) if comp.sum() >= min_area * garea]
+    return [c for c in (_candidate(ctx, comp) for comp in comps) if _is_digit(c)]
+
+
+def player_marks(cands: list[dict]) -> list[dict]:
+    """The candidates of a back photo that are the player's number and name: the game puts them on for each player,
+    so they are not part of the kit. The number: tall pieces (digits, or the whole number) around the middle of the
+    back, not as long as a stripe; the name: smaller centred pieces just above it. [] when there is no number."""
+    digits = [c for c in cands if _is_digit(c)]
+    if not digits:
+        return []
+    top = min(c["cy"] - c["h"] / 2 for c in digits)
+    height = max(c["h"] for c in digits)
+    names = [
+        c
+        for c in cands
+        if c not in digits
+        and abs(c["tx"] - 0.5) <= 0.15
+        and c["h"] < 0.6 * height
+        and top - 0.12 <= c["cy"] + c["h"] / 2 <= top + 0.02
+    ]
+    return digits + names
+
+
 def join_logos(im: Image.Image, boxes, inside: float = 0.7, thr: int = 90, clip: bool = False) -> dict:
     """One logo from several candidate boxes (full-size pixel boxes): the parts of the logo mask that lie mostly
     (inside share of their pixels) in the union box. Strokes crossing the logo in the same colour run far out of the
@@ -388,11 +451,18 @@ def cut_logos(photo: str, out_dir: str) -> list[str]:
     stem = os.path.splitext(os.path.basename(photo))[0]
     side = photo_side(photo)
     files, meta = [], []
-    for i, cd in enumerate(find_logos(Image.open(photo)), 1):
+    im = Image.open(photo)
+    cands = find_logos(im)
+    if side == "back":
+        cands += [d for d in find_digits(im) if all(_iou(d["box"], c["box"]) < 0.5 for c in cands)]
+    for i, cd in enumerate(cands, 1):
         name = f"{stem}_c{i:02d}.png"
         cd["image"].save(os.path.join(out_dir, name))
         files.append(os.path.join(out_dir, name))
         meta.append(_measurements(cd, name, side))
+    if side == "back":
+        for m in player_marks(meta):
+            m["role"] = "player"
     with open(candidates_path(out_dir, stem), "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=1)
     return files

@@ -68,6 +68,17 @@ def secondary_colour(body: str, colours, min_dist: float = 60) -> str | None:
     return None
 
 
+def tone_gain(src: str, dst: str) -> tuple[float, float, float]:
+    """How much each channel of a photo's colours is multiplied by to look like another photo of the same kit: the
+    same colour measured on both (src -> dst). A dark channel (under 8) tells nothing: it keeps 1."""
+    return tuple(d / s if s >= 8 else 1.0 for s, d in zip(hex_to_rgb(src), hex_to_rgb(dst)))
+
+
+def apply_gain(c: str, gain) -> str:
+    """The colour in the other photo's tone (see tone_gain); channels stop at 255."""
+    return rgb_to_hex([min(255, round(v * g)) for v, g in zip(hex_to_rgb(c), gain)])
+
+
 def readable_colour(body: str, secondary: str | None = None) -> str:
     """Colour for numbers and the maker logo: the kit's secondary colour if readable, else white or near-black."""
     if secondary and contrast(body, secondary) >= 3:

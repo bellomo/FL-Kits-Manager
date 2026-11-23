@@ -73,6 +73,7 @@ class CompetitionPage(QWidget):
         self.replace_all_button = QPushButton("Replace logo…")
         self.replace_all_button.setToolTip("Choose one picture for all three variants (installed by Deploy)")
         self.keep_button = QPushButton("Keep the current logo")
+        self.keep_button.setToolTip("Drop the new logo waiting for Deploy: the game keeps the logo it has")
         self.keep_button.setVisible(False)
         self.replace_all_button.clicked.connect(lambda: self.replace_requested.emit("all"))
         self.keep_button.clicked.connect(self.discard_requested)

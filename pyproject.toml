@@ -17,6 +17,7 @@ build-backend = "setuptools.build_meta"
 packages = ["flkm", "flkm.game", "flkm.photokit"]
 
 [tool.setuptools.package-data]
+"flkm" = ["flkm.ico"]  # the app icon (icon.py)
 "flkm.photokit" = ["kit_zones.png"]  # the texture zones (texture.py)
 
 [tool.pytest.ini_options]

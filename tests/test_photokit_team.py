@@ -82,6 +82,9 @@ def test_make_team_end_to_end(fake_game, tmp_path):
     assert set(made.textures) == {"p1", "p2"} and made.missing == ["third", "gk"]
     assert (made.maker, made.new_maker) == ("maker_1", True) and (makers / "maker_1.png").is_file()
     assert "maker: maker_1 (new in the cache)" in made.notes
+    back = "the back (the front mirrored, no back sponsor)"
+    assert f"home: no photo of {back}, the socks (the shorts colour)" in made.notes
+    assert f"away: no photo of {back}, the shorts (the shirt colour), the socks (the shorts colour)" in made.notes
     t = json.loads((work / "team.json").read_text(encoding="utf-8"))
     assert (t["crest"], t["maker"]) == ("crest.png", "maker_1")
     home = Image.open(made.textures["p1"])
@@ -101,6 +104,20 @@ def test_make_team_end_to_end(fake_game, tmp_path):
     assert not (work / "away.png").exists() and "maker: maker_1 (from the cache)" in again.notes
 
 
+def test_deduced_notes():
+    kits = {
+        "home": {"_draft": {"deduced": []}},
+        "away": {"_draft": {"deduced": ["shorts", "socks", "back"]}},
+        "gk": {"_draft": {"deduced": ["socks"]}},
+        "third": {},  # a team.json written by hand
+    }
+    assert team.deduced_notes({"kits": kits}) == [
+        "away: no photo of the back (the front mirrored, no back sponsor), the shorts (the shirt colour), "
+        "the socks (the shorts colour)",
+        "gk: no photo of the socks (the shorts colour)",
+    ]
+
+
 def test_make_team_without_a_crest_in_the_game(fake_game, tmp_path):
     with pytest.raises(PhotoKitError, match="no crest for team 7"):
         team.make_team(fake_game, 7, tmp_path, tmp_path / "makers")
@@ -109,14 +126,17 @@ def test_make_team_without_a_crest_in_the_game(fake_game, tmp_path):
 def fake_steps(monkeypatch, kits_json):
     """draft and build replaced by fakes: the draft writes kits_json, the build writes nothing"""
 
-    def draft(folder, crest=None, force=False):
+    def draft(folder, crest=None, force=False, tones=None):
+        drafted.append(tones)
         path = f"{folder}/team.json"
         with open(path, "w", encoding="utf-8") as f:
             json.dump({"crest": crest, "kits": kits_json}, f)
         return path, [], []
 
+    drafted = []
     monkeypatch.setattr(team, "draft_team", draft)
     monkeypatch.setattr(team, "build_team", lambda folder, makers: {})
+    return drafted
 
 
 def test_make_team_keeps_the_logos_when_asked_and_has_no_maker(fake_game, tmp_path, monkeypatch):
@@ -173,3 +193,74 @@ def test_stage_textures_like_replace(tmp_path):
     tex = ftex.parse(staging.path(changes[0]).read_bytes())
     assert tex.width == 256 and staging.path(changes[0]).read_bytes()[:4] == bytes(header[:4])
     assert set(staging.for_team(186)) == {"p1", "p2"}
+
+
+def test_place_photos_by_name_then_in_the_first_empty_cells(tmp_path):
+    named = [tmp_path / "away_shorts_1.png", tmp_path / "h1.jpg", tmp_path / "back_home.png"]
+    other = [tmp_path / "IMG_0001.jpg", tmp_path / "IMG_0002.webp"]
+    chosen, left = team.place_photos(named + other, {("home", "shirt"): tmp_path / "old.png"})
+    assert chosen[("away", "shorts")] == named[0] and chosen[("home", "back")] == named[2]
+    assert chosen[("home", "shirt")] == named[1]  # the name says so: it replaces the old one
+    assert chosen[("home", "shorts")] == other[0] and chosen[("home", "socks")] == other[1]  # next empty cells
+    assert left == []
+    full = {cell: tmp_path / "x.png" for cell in team.CELLS}
+    chosen, left = team.place_photos(other, full)
+    assert chosen == full and left == other
+
+
+def test_photos_in_folder(tmp_path):
+    for name in ("b.png", "a.JPG", "c.webp", "notes.txt", "_grid.png"):
+        (tmp_path / name).write_bytes(b"")
+    (tmp_path / "sub").mkdir()
+    assert [p.name for p in team.photos_in_folder(tmp_path)] == ["_grid.png", "a.JPG", "b.png", "c.webp"]
+
+
+def test_save_pasted_numbers_the_pictures(tmp_path):
+    first = team.save_pasted(Image.new("RGBA", (10, 10), (255, 0, 0, 255)), tmp_path)
+    second = team.save_pasted(Image.new("RGB", (10, 10)), tmp_path)
+    assert (first.name, second.name) == ("pasted_1.png", "pasted_2.png") and first.parent == tmp_path / "pasted"
+    assert Image.open(first).getpixel((0, 0))[:3] == (255, 0, 0)
+
+
+def test_chosen_to_photos():
+    chosen = {("home", "shirt"): "h.png", ("home", "back"): "b.png", ("away", "socks"): "s.png"}
+    assert team.chosen_to_photos(chosen) == {
+        "home": {"shirt": ["h.png"], "back": ["b.png"]},
+        "away": {"socks": ["s.png"]},
+    }
+
+
+def test_make_team_with_a_crest_given(fake_game, tmp_path, monkeypatch):
+    fake_steps(monkeypatch, {"home": {"body": "#000000"}})
+    team.make_team(fake_game, 7, tmp_path, tmp_path / "makers", crest=Image.new("RGBA", (64, 64), (1, 2, 3, 255)))
+    assert Image.open(tmp_path / "crest.png").getpixel((5, 5)) == (1, 2, 3, 255)  # the team has none in the game
+
+
+def test_make_team_with_the_colours_of_one_photo(fake_game, tmp_path, monkeypatch):
+    drafted = fake_steps(monkeypatch, {"home": {"body": "#000000"}})
+    team.make_team(fake_game, 186, tmp_path, tmp_path / "makers", tones={"home": "back"})
+    team.make_team(fake_game, 186, tmp_path, tmp_path / "makers")
+    assert drafted == [{"home": "back"}, None]
+
+
+def test_saved_tones(tmp_path):
+    assert team.saved_tones(tmp_path) == {}  # never made
+    kits = {"home": {"_draft": {"tone": "back"}}, "away": {"_draft": {}}, "gk": {}}
+    (tmp_path / "team.json").write_text(json.dumps({"kits": kits}), encoding="utf-8")
+    assert team.saved_tones(tmp_path) == {"home": "back"}
+
+
+def test_copy_photos_from_the_photos_copied_before(tmp_path):
+    src = photos(tmp_path)
+    ref = team.copy_photos({"home": {"shirt": [src / "away.png"]}}, tmp_path / "work")
+    again = team.copy_photos({"away": {"shirt": [ref / "home_1.png"]}}, tmp_path / "work")
+    assert [p.name for p in again.iterdir()] == ["away_1.png"]
+    assert (again / "away_1.png").read_bytes() == (src / "away.png").read_bytes()
+
+
+def test_made_before(tmp_path):
+    assert team.made_before(tmp_path) is None
+    (tmp_path / "away.png").write_bytes(b"png")
+    (tmp_path / "crest.png").write_bytes(b"png")
+    made = team.made_before(tmp_path)
+    assert (made.folder, made.textures, made.maker, made.notes) == (tmp_path, {"p2": tmp_path / "away.png"}, None, [])

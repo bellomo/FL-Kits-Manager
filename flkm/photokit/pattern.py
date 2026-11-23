@@ -20,7 +20,7 @@ from collections import Counter
 import numpy as np
 from PIL import Image
 
-from flkm.photokit.colour import colour_distance, is_shade, rgb_to_hex
+from flkm.photokit.colour import apply_gain, colour_distance, is_shade, rgb_to_hex, tone_gain
 from flkm.photokit.logo import analyse_garment
 from flkm.photokit.photo import label_regions
 from flkm.photokit.spec import TORSO_PX, Y0, YK
@@ -190,9 +190,10 @@ def pair_side_rects(sides: list[dict], shade: dict) -> list[dict]:
     return out
 
 
-def read_pattern(im: Image.Image, side: str = "front", debug: bool = False) -> dict:
+def read_pattern(im: Image.Image, side: str = "front", debug: bool = False, skip: list | None = None) -> dict:
     """{'body': '#rrggbb', 'rects': [{'region': 'body', 'x', 'y', 'color'}], 'hem': cy} of one shirt photo; debug adds
-    the grid and palette."""
+    the grid and palette; skip: boxes of the photo (pixels x0, y0, x1, y1) that are not the kit (the player's number
+    and name on a back photo): they take the colour above or below them."""
     ctx = analyse_garment(im, "big")
     a, g = ctx["a"], ctx["g"]
     gy0, gy1 = ctx["Y0"], ctx["Y1"]
@@ -219,6 +220,11 @@ def read_pattern(im: Image.Image, side: str = "front", debug: bool = False) -> d
                 unknown[r, c] = True
                 continue
             grid[r, c] = np.bincount(cls[ys, xs][m], minlength=len(pal)).argmax()
+    s = ctx["scale"]
+    for bx0, by0, bx1, by1 in skip or []:
+        c0, c1 = max(0, int((bx0 * s - t0) // cell)), min(COLS, int(np.ceil((bx1 * s - t0) / cell)))
+        r0, r1 = max(0, int((by0 * s - top) // cell)), min(rows, int(np.ceil((by1 * s - top) / cell)))
+        unknown[r0:r1, c0:c1] = True
     grid = _fill_vertical(grid, unknown)
     body = Counter(grid.ravel().tolist()).most_common(1)[0][0]
     # compact areas of another colour are logos: their cells take the colour above or below
@@ -279,15 +285,31 @@ def paint_row(res: dict, y: int, x0: int = BODY_X[0], x1: int = BODY_X[1]) -> li
     return row
 
 
-def read_kit_pattern(front: str, back: str | None = None) -> dict:
-    """Body colour + rects for the front and the back of one kit (paths of the shirt photo and the back photo)."""
+TONES = ("auto", "front", "back")  # which photo gives the colours of a kit with a front and a back photo
+
+
+def _toned(rects: list[dict], gain) -> list[dict]:
+    return [dict(r, color=apply_gain(r["color"], gain)) for r in rects]
+
+
+def read_kit_pattern(front: str, back: str | None = None, tone: str = "auto", skip: list | None = None) -> dict:
+    """Body colour + rects for the front and the back of one kit (paths of the shirt photo and the back photo), and
+    the gain that puts the front photo's other colours (sleeves, collar) in the kit's tone.
+    tone (with a back photo): "auto" = a back of another colour is a real one (Catania home: blue back); "front" or
+    "back" = the two photos show the same kit in two tones (photos from two sites): that photo's tone for both.
+    skip: boxes of the back photo left out (the player's number and name, see read_pattern)."""
     fr = read_pattern(Image.open(front))
+    none = (1.0, 1.0, 1.0)
+    if not back:
+        return {"body": fr["body"], "rects": fr["rects"] + mirror_rects_to_back(fr["rects"], fr["hem"]), "gain": none}
+    bk = read_pattern(Image.open(back), side="back", skip=skip)
+    if tone == "front":
+        rects = fr["rects"] + _toned(bk["rects"], tone_gain(bk["body"], fr["body"]))
+        return {"body": fr["body"], "rects": rects, "gain": none}
+    if tone == "back":
+        gain = tone_gain(fr["body"], bk["body"])
+        return {"body": bk["body"], "rects": _toned(fr["rects"], gain) + bk["rects"], "gain": gain}
     rects = list(fr["rects"])
-    if back:
-        bk = read_pattern(Image.open(back), side="back")
-        if colour_distance(bk["body"], fr["body"]) >= 60:  # a back of another colour (Catania home: blue back)
-            rects.append({"region": "body", "x": list(BODY_X), "y": list(BACK_Y), "color": bk["body"]})
-        rects += bk["rects"]
-    else:
-        rects += mirror_rects_to_back(fr["rects"], fr["hem"])
-    return {"body": fr["body"], "rects": rects}
+    if colour_distance(bk["body"], fr["body"]) >= 60:
+        rects.append({"region": "body", "x": list(BODY_X), "y": list(BACK_Y), "color": bk["body"]})
+    return {"body": fr["body"], "rects": rects + bk["rects"], "gain": none}

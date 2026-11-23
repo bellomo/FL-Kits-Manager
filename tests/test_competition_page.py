@@ -7,6 +7,7 @@ from pathlib import Path
 from PIL import Image
 from PySide6.QtGui import QDesktopServices
 
+from conftest import buttons_without_tooltip
 from flkm.catalog import Competition
 from flkm.competition_page import LOGO_SIZE, CompetitionPage
 
@@ -82,3 +83,9 @@ def test_the_folder_of_the_logo_is_shown_once_above_the_variants(qtbot, monkeypa
     assert [Path(u) for u in opened] == [data]
     p.show_competition(CUP, variants())  # no logo in the game files
     assert not p.folder_row.isVisibleTo(p)
+
+
+def test_every_button_has_a_tooltip(qtbot):
+    p = make_page(qtbot)
+    p.show_competition(CUP, variants(pending=True))
+    assert p.cards and buttons_without_tooltip(p) == []

@@ -55,3 +55,20 @@ Versions follow semver (`MAJOR.MINOR.PATCH`); the release zip is `FLKitsManager_
 - Kits from photos end to end (M6b, no window yet): the team's crest comes from the game, the maker's logo from the
   photos goes to a cache of makers (`%APPDATA%\FLKitsManager\makers`, recognised by its shape on the next teams and
   used on kits whose photo hides it), one texture per kit (p1, p2, p3, g1) staged for Deploy like Replace….
+- Kits from photos window (M6c): **Kits from photos…** on the team page; photos added from files or a folder (placed
+  by their names), dragged in from Explorer or a browser, or pasted (Ctrl+V), one per box (kit x part), moved between
+  boxes by dragging; the kits are made in the background and shown next to the current ones, then **Add to changes**
+  stages them. A new crest waiting for Deploy is used instead of the game's. The photos stay in the team's work folder
+  (`%APPDATA%\FLKitsManager\photokits\<team id>`) for next time; **Clear** deletes that folder after
+  asking.
+  The notes under the new kits say which parts had no photo and how they were made (back: the front mirrored;
+  shorts: the shirt colour; socks: the shorts colour).
+  A Colours choice per kit (Auto, From the front, From the back) for front and back photos that show the same
+  colours in two tones (photos from different sites); remembered in the team's work folder.
+  The new kits are shown Folded or Unrolled; View photos and View kits switch between the photos and the kits made
+  last (also the ones made last time), without making them again.
+  The player's name and number on a back photo are left out of the kit (they were read as stripes and sponsors),
+  also when they have the colour of the sleeves (black number on a back with black sleeves); a sponsor of that colour
+  is found too.
+- Every button has a tooltip that says what it does.
+- The app logo is the icon of the exe and of its windows (title bar, taskbar).

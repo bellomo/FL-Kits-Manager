@@ -1,11 +1,12 @@
 """Main window: the team list on the left, the page of the chosen team on the right.
 
-Kits chosen with Replace… (a texture) or Changes > Import kit pack (whole kits), and crests chosen with Replace
-crest…, wait in the staging area (shown on the team page) until Changes > Deploy installs them; Changes > Undo last
-deploy puts back what the last deploy changed.
+Kits chosen with Replace… (a texture), made with Kits from photos… or brought by Changes > Import kit pack (whole
+kits), and crests chosen with Replace crest…, wait in the staging area (shown on the team page) until Changes > Deploy
+installs them; Changes > Undo last deploy puts back what the last deploy changed.
 """
 
 import dataclasses
+import functools
 import io
 from collections.abc import Callable
 from pathlib import Path
@@ -36,8 +37,11 @@ from flkm.competition_tree import CompetitionTree
 from flkm.game import ftex, kits, logos, process
 from flkm.import_dialog import ImportDialog
 from flkm.logo_import_dialog import LogoImportDialog
+from flkm.photo_kit_dialog import PhotoKitDialog
+from flkm.photokit.maker import makers_folder
+from flkm.photokit import team as photo_team
 from flkm.staging import Staging
-from flkm.team_page import PENDING_COLOUR, TeamPage, common_folder, slot_name
+from flkm.team_page import PENDING_COLOUR, TeamPage, common_folder, kit_picture, slot_name
 from flkm.team_tree import TeamTree
 
 APP_NAME = "FL Kits Manager"
@@ -99,6 +103,7 @@ class MainWindow(QMainWindow):
         self.start_text = QLabel(f"Choose the folder of {GAME_NAME} to see its teams and kits.")
         self.start_text.setAlignment(Qt.AlignCenter)
         self.choose_button = QPushButton("Choose the game folder…")
+        self.choose_button.setToolTip("Choose the folder where SP Football Life 2027 is installed")
         start_layout = QVBoxLayout(self.start)
         start_layout.addStretch()
         start_layout.addWidget(self.start_text)
@@ -114,6 +119,7 @@ class MainWindow(QMainWindow):
         self.links_text = QLabel()
         self.links_text.setWordWrap(True)
         self.relink_button = QPushButton("Re-apply")
+        self.relink_button.setToolTip("Write again the links to the deployed kits that another tool removed")
         banner_layout = QHBoxLayout(self.links_banner)
         banner_layout.addWidget(self.links_text, 1)
         banner_layout.addWidget(self.relink_button)
@@ -188,6 +194,7 @@ class MainWindow(QMainWindow):
         self.page.discard_requested.connect(self.keep_kit)
         self.page.crest_replace_requested.connect(self.replace_crest)
         self.page.crest_discard_requested.connect(self.keep_crest)
+        self.page.photos_requested.connect(self.kits_from_photos)
         self.comp_tree.competition_selected.connect(self.show_competition)
         self.comp_page.replace_requested.connect(self.replace_logo)
         self.comp_page.discard_requested.connect(self.keep_logo)
@@ -263,11 +270,17 @@ class MainWindow(QMainWindow):
         self.team_id = team_id
         self.pages.setCurrentWidget(self.page)
 
+    def _staged_crest(self, team_id: int) -> Image.Image | None:
+        """the team's new crest waiting for Deploy, or None"""
+        staged = self.staging.logo("crest", team_id)
+        if not staged:
+            return None
+        return Image.open(io.BytesIO(self.staging.logo_files(staged)[logos.crest_files(team_id)[512]]))
+
     def _show_crest(self, team_id: int) -> None:
         staged = self.staging.logo("crest", team_id)
         if staged:
-            files = self.staging.logo_files(staged)
-            image = Image.open(io.BytesIO(files[logos.crest_files(team_id)[512]]))
+            image = self._staged_crest(team_id)
             self.page.show_crest(image, f"New crest, not deployed yet: {Path(staged.source).name}", pending=True)
             self.page.crest_source.setToolTip(staged.source)
             return
@@ -443,6 +456,35 @@ class MainWindow(QMainWindow):
         except (ftex.FtexError, ValueError, OSError) as e:
             QMessageBox.warning(self, APP_NAME, f"{path} cannot be used for this kit: {e}")
             return
+        self._changes_made()
+
+    def kits_from_photos(self) -> None:
+        """The Kits from photos dialog; its kits are staged like Replace… does. Each team has its work folder (the
+        photos chosen, the logos cut from them, the textures): the dialog opens with the photos chosen last time."""
+        team = self.catalog.get(self.team_id)
+        work = settings.home() / "photokits" / str(team.id)
+        work.mkdir(parents=True, exist_ok=True)
+        ref = work / "ref"
+        chosen, _ = photo_team.place_photos(photo_team.photos_in_folder(ref) if ref.is_dir() else [], {})
+        game_kits = {k.slot: k for k in self.catalog.kits(team.id) if k.slot in photo_team.SLOTS.values()}
+        current = {slot: functools.partial(kit_picture, kit) for slot, kit in game_kits.items()}  # view -> picture
+        files, crest = self.catalog.files, self._staged_crest(team.id)
+
+        def make(photos: dict, tones: dict):
+            photo_team.copy_photos(photo_team.chosen_to_photos(photos), work)
+            return photo_team.make_team(files, team.id, work, makers_folder(), crest=crest, tones=tones)
+
+        tones = photo_team.saved_tones(work)
+        made = photo_team.made_before(work)
+        dialog = PhotoKitDialog(
+            team.name, work, make, current, chosen, tones, parent=self, view=self.page.view, made=made
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return
+        try:
+            photo_team.stage_textures(self.staging, team.id, team.name, dialog.made, game_kits)
+        except (ftex.FtexError, ValueError, OSError) as e:
+            QMessageBox.warning(self, APP_NAME, f"The kits from the photos cannot be used: {e}")
         self._changes_made()
 
     def keep_kit(self, slot: str) -> None:

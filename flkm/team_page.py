@@ -114,6 +114,11 @@ class KitCard(QWidget):
         )
         self.replace_button.setVisible(not added)  # a texture needs a kit to go into
         self.discard_button = QPushButton("Don't add this kit" if added else "Keep the current kit")
+        self.discard_button.setToolTip(
+            "Drop this new kit: it is not added"
+            if added
+            else "Drop the new kit waiting for Deploy: the game keeps its kit"
+        )
         self.discard_button.setVisible(pending)
         buttons = QHBoxLayout()
         buttons.addWidget(self.replace_button)
@@ -138,6 +143,7 @@ class TeamPage(QWidget):
     discard_requested = Signal(str)  # slot
     crest_replace_requested = Signal()
     crest_discard_requested = Signal()
+    photos_requested = Signal()  # Kits from photos…
 
     def __init__(self, view: str = "folded", parent: QWidget | None = None):
         super().__init__(parent)
@@ -149,6 +155,8 @@ class TeamPage(QWidget):
         self.details.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.folded_button = QPushButton("Folded", checkable=True)
         self.unrolled_button = QPushButton("Unrolled", checkable=True)
+        self.folded_button.setToolTip("Show each kit folded, front and back, as in the game")
+        self.unrolled_button.setToolTip("Show each kit's texture as it is, unrolled")
         group = QButtonGroup(self)
         for b in (self.folded_button, self.unrolled_button):
             group.addButton(b)
@@ -179,6 +187,7 @@ class TeamPage(QWidget):
             "Choose a picture (PNG, DDS, JPEG) for the team's crest (installed by Deploy)"
         )
         self.keep_crest_button = QPushButton("Keep the current crest")
+        self.keep_crest_button.setToolTip("Drop the new crest waiting for Deploy: the game keeps its crest")
         self.keep_crest_button.setVisible(False)
         self.replace_crest_button.clicked.connect(self.crest_replace_requested)
         self.keep_crest_button.clicked.connect(self.crest_discard_requested)
@@ -196,6 +205,10 @@ class TeamPage(QWidget):
         names.addLayout(crest_row)
         header.addWidget(self.crest)
         header.addLayout(names, 1)
+        self.photos_button = QPushButton("Kits from photos…")
+        self.photos_button.setToolTip("Make the team's kits from photos of the real ones (installed by Deploy)")
+        self.photos_button.clicked.connect(self.photos_requested)
+        header.addWidget(self.photos_button)
         header.addWidget(self.folded_button)
         header.addWidget(self.unrolled_button)
         layout = QVBoxLayout(self)

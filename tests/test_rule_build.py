@@ -15,6 +15,12 @@ def test_build_script_makes_the_one_folder_exe_and_smoke_tests_it():
     assert "--smoke-test" in text
 
 
+def test_the_exe_has_the_app_icon_and_the_windows_too():
+    text = BUILD.read_text(encoding="utf-8")
+    assert r'--icon "$root\flkm\flkm.ico"' in text
+    assert r'--add-data "$root\flkm\flkm.ico;flkm"' in text
+
+
 def test_post_commit_hook_runs_the_build_script_in_the_background():
     hook = (ROOT / "scripts" / "hooks" / "post-commit").read_text(encoding="utf-8")
     assert hook.startswith("#!/bin/sh")

@@ -23,6 +23,7 @@
 3. [Usage](#usage)
    - [View kits and logos](#view)
    - [Replace one kit or logo](#replace-one)
+   - [Kits from photos](#kits-from-photos)
    - [Replace many: import kits and logos](#replace-many)
    - [Deploy and what the app writes](#what-the-app-writes)
    - [Claude (optional)](#claude-optional)
@@ -129,6 +130,47 @@ A replacement is not written to the game yet: it shows as *new* (in orange) and 
 waiting. **Keep the current kit** / **Keep the current crest** / **Keep the current logo** drops one, Changes →
 **Discard all changes** drops them all.
 
+<a id="kits-from-photos"></a>
+
+### 📸 Kits from photos
+
+**Kits from photos…** on the team page makes the team's kits from photos of the real ones (the club's store photos
+work best): one photo per box, for each kit (home, away, third, goalkeeper) the shirt from the front and from the
+back, the shorts and the socks. Only the shirt from the front is needed: without its back the kit's back is the front
+mirrored (no back sponsor), without shorts they take the shirt's colour, without socks the shorts' colour; the notes
+under the new kits say which parts were made this way. A kit without the shirt from the front is not made (the team
+keeps the one it has).
+
+**Colours** (one choice per kit): when the front and the back photos come from different sites, the same colours can
+look different on them. **Auto** keeps a back that looks of another colour (a kit really in two colours);
+**From the front** or **From the back** makes the whole kit in the colours of that photo. The choice is remembered for
+the next time.
+
+A back photo with a player's name and number works too: the game puts them on for each player, so they are left out
+of the kit (not taken for stripes or sponsors); the notes say so.
+
+Photos come in every way:
+
+- **Add photos…** or **Add folder…**: photos named like `home_1.png`, `back_home.png`, `away_shorts.png` go to their
+  box, the others to the first empty boxes;
+- **drag** pictures from Explorer or a browser onto a box (or anywhere in the window);
+- **copy** a picture or a photo file and **paste** it (Ctrl+V or **Paste**) into the box you clicked;
+- drag a photo to another box to move it (the two swap), double-click a box to choose its photo, right click to
+  remove it.
+
+**Make kits** reads the colours, logos and stripes on the photos (about a minute) and shows each new kit next to the
+one the team wears now, **Folded** or **Unrolled** (the same choice as on the team page). **View photos** goes back to
+the photos and **View kits** comes back to the kits made last, without making them again; the kits made last time
+are there to view when the dialog opens again. The crest comes from the game (or the new crest waiting for Deploy); the kit maker's logo is
+cut from the photos and kept in `%APPDATA%\FLKitsManager\makers`, so the next teams of the same maker get it even
+when their photos hide it. **Add to changes** stages the kits like **Replace…**: they wait for Deploy. The photos stay
+in the team's work folder (`%APPDATA%\FLKitsManager\photokits\<team id>`), and the dialog opens with them next time.
+
+To undo a try: **Cancel** before Add to changes stages nothing; after it, **Keep the current kit** or Changes →
+**Discard all changes**. **Clear** deletes the team's work folder (the copies of the photos, the
+pictures pasted, the logos cut from them, the kits made) after asking: it cannot be undone, and your own photo files
+are not touched. The makers' logos stay in their cache for the next teams.
+
 <a id="replace-many"></a>
 
 ### 📦 Replace many: import kits and logos
@@ -221,11 +263,13 @@ Development rules (test-driven, 100% line and branch coverage, no network in tes
 | Path | Content |
 |---|---|
 | `flkm/cli.py` | Command line of the exe (`--game <folder>`, `--smoke-test`) |
+| `flkm/icon.py` | The app icon `flkm/flkm.ico` (exe and windows), made from `docs/images/flkm-logo.svg` with `python -m flkm.icon` |
 | `flkm/main_window.py` | Main window: game folder, team list, team page, Changes menu (Deploy, Undo, Re-apply) |
 | `flkm/team_tree.py` | Team list: federation > country > league > team, search by name or id |
-| `flkm/team_page.py` | Team page: crest, details and kits, folded or unrolled, Replace… and kits waiting for Deploy |
+| `flkm/team_page.py` | Team page: crest, details and kits, folded or unrolled, Replace…, Kits from photos… and kits waiting for Deploy |
 | `flkm/competition_tree.py` | Competition list: federation > country > competition, search by name, code or id |
 | `flkm/competition_page.py` | Competition page: the three variants of its logo on light and dark, Replace logo… |
+| `flkm/photo_kit_dialog.py` | Kits from photos dialog: photos added, dropped or pasted in boxes, kits made in the background, now and new |
 | `flkm/import_dialog.py` | Import dialog: the pack's team folders, the game team of each one, Choose team… |
 | `flkm/logo_import_dialog.py` | Logo import dialog: the pack's logos, a picture of each, where it goes, Choose… |
 | `flkm/pack.py` | Kit packs (folder or zip): team folders, their kits, map lines; matching with the game's teams |

@@ -207,3 +207,46 @@ def test_tall_part_of_mixed_colours_stays_one_candidate():
 
 def test_width_of_an_empty_mask():
     assert logo._width(np.zeros((3, 3), bool)) == 0
+
+
+# the back of a player's shirt: name, number (two digits), a sponsor under them
+NAME = (WHITE, (0.42, 0.22, 0.58, 0.26))
+DIGITS = [(WHITE, (0.40, 0.30, 0.48, 0.55)), (WHITE, (0.52, 0.30, 0.60, 0.55))]
+UNDER = (WHITE, (0.42, 0.65, 0.58, 0.70))
+
+
+def mark(cx, cy, w, h, tx=None, tw=None):
+    return {"cx": cx, "cy": cy, "w": w, "h": h, "tx": cx if tx is None else tx, "tw": w if tw is None else tw}
+
+
+def test_player_marks_are_the_number_and_the_name_above_it():
+    digits = [mark(0.44, 0.37, 0.1, 0.33, tx=0.35), mark(0.56, 0.37, 0.1, 0.33, tx=0.65)]
+    name = mark(0.5, 0.12, 0.2, 0.05, tx=0.5, tw=0.4)
+    sponsor = mark(0.5, 0.7, 0.2, 0.07)
+    assert logo.player_marks(digits + [name, sponsor]) == digits + [name]
+    assert logo.player_marks([name, sponsor]) == []  # no number: nothing is the player's
+    stripe = mark(0.5, 0.5, 0.05, 0.85)  # a stripe down the whole back is not a number
+    assert logo.player_marks([stripe, name]) == []
+    one = mark(0.5, 0.4, 0.25, 0.3)  # a number cut as one piece ("10" glued together)
+    high = mark(0.5, 0.05, 0.2, 0.04)  # far above the number: not the name
+    assert logo.player_marks([one, high, sponsor]) == [one]
+
+
+def test_cut_logos_of_a_back_photo_marks_the_number_and_the_name(tmp_path):
+    photo = tmp_path / "back_home_1.png"
+    kit_photo(logos=[NAME, *DIGITS, UNDER]).save(photo)
+    logo.cut_logos(str(photo), str(tmp_path))
+    meta = json.loads((tmp_path / "_candidates_back_home_1.json").read_text(encoding="utf-8"))
+    assert sorted(m["role"] for m in meta) == ["player", "player", "player", "sponsor"]
+    assert [m["cy"] > 0.6 for m in meta if m["role"] == "sponsor"] == [True]
+
+
+def test_dark_marks_on_a_back_with_sleeves_of_their_colour(tmp_path):
+    # the sleeves' black is a fabric colour, yet the name, number and sponsor in black on the torso are not fabric:
+    # they do not touch the sleeves (Alcione away: black sleeves, black number and sponsor on a khaki back)
+    photo = tmp_path / "back_away_1.png"
+    marks = [(BLACK, box) for _, box in (NAME, *DIGITS, UNDER)]
+    kit_photo(body=(150, 145, 120), sleeve=BLACK, collar=BLACK, logos=marks).save(photo)
+    logo.cut_logos(str(photo), str(tmp_path))
+    meta = json.loads((tmp_path / "_candidates_back_away_1.json").read_text(encoding="utf-8"))
+    assert sorted(m["role"] for m in meta) == ["player", "player", "player", "sponsor"]

@@ -205,3 +205,44 @@ def test_read_kit_pattern_with_a_back_of_another_colour(tmp_path):
     photo().save(tmp_path / "back_home.png")  # a back of the body's colour: nothing added
     res = pattern.read_kit_pattern(str(tmp_path / "home.png"), str(tmp_path / "back_home.png"))
     assert len(blue_rects(res)) == 1
+
+
+DARK_RED, DARK_BLUE = (130, 20, 25), (20, 47, 100)  # the same red and blue on a darker photo of the back
+
+
+def test_read_kit_pattern_with_the_colours_of_one_photo(tmp_path):
+    """front and back photos from two sites: the same kit in two tones; one of them gives the colours"""
+    photo(stripes=[(BLUE, 0.48, 0.52)]).save(tmp_path / "home.png")
+    photo(body=DARK_RED, collar=DARK_RED, stripes=[(DARK_BLUE, 0.48, 0.52)]).save(tmp_path / "back_home.png")
+    front, back = str(tmp_path / "home.png"), str(tmp_path / "back_home.png")
+
+    def whole_back(res):
+        return [r for r in res["rects"] if r["y"] == list(pattern.BACK_Y) and r["x"] == list(pattern.BODY_X)]
+
+    auto = pattern.read_kit_pattern(front, back)
+    assert whole_back(auto) and auto["gain"] == (1.0, 1.0, 1.0)
+    same = pattern.read_kit_pattern(front, back, tone="front")
+    assert not whole_back(same)  # no back of another colour
+    assert len(blue_rects(same)) == 2 and near(same["body"], RED_HEX)  # the back stripe in the front's blue
+    assert same["gain"] == (1.0, 1.0, 1.0)
+    dark = pattern.read_kit_pattern(front, back, tone="back")
+    assert not whole_back(dark)
+    assert near(dark["body"], "#82141a") and all(near(r["color"], "#142f64", 16) for r in dark["rects"])
+    assert 0.6 < dark["gain"][0] < 0.7  # the front's colours (body, sleeves...) to the back's tone
+    assert pattern.read_kit_pattern(front, tone="back")["gain"] == (1.0, 1.0, 1.0)  # no back photo: no tone
+
+
+def test_read_pattern_of_a_back_leaves_out_the_player_number():
+    """the number on a back photo is put on by the game for each player: not stripes of the kit"""
+    back = photo(logos=[(WHITE, (0.40, 0.30, 0.48, 0.55)), (WHITE, (0.52, 0.30, 0.60, 0.55))])
+    assert pattern.read_pattern(back, side="back")["rects"]  # read as two white stripes
+    boxes = [[320, 240, 384, 440], [416, 240, 480, 440]]  # where the digits are on the photo (pixels)
+    res = pattern.read_pattern(back, side="back", skip=boxes)
+    assert res["rects"] == [] and near(res["body"], RED_HEX)
+
+
+def test_read_kit_pattern_gives_the_skipped_boxes_to_the_back(tmp_path):
+    photo().save(tmp_path / "home.png")
+    photo(logos=[(WHITE, (0.40, 0.30, 0.48, 0.55)), (WHITE, (0.52, 0.30, 0.60, 0.55))]).save(tmp_path / "back.png")
+    skip = [[320, 240, 384, 440], [416, 240, 480, 440]]
+    assert pattern.read_kit_pattern(str(tmp_path / "home.png"), str(tmp_path / "back.png"), skip=skip)["rects"] == []

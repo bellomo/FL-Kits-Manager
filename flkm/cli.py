@@ -8,6 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
+from flkm.icon import app_icon
 from flkm.main_window import APP_NAME, MainWindow
 
 
@@ -22,6 +23,7 @@ def main(argv: list[str] | None = None, app: QApplication | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     app = app or QApplication.instance() or QApplication(sys.argv[:1])
     app.setApplicationName(APP_NAME)
+    app.setWindowIcon(app_icon())  # the title bar and the taskbar of every window
     window = MainWindow(game_dir=Path(args.game) if args.game else None)
     window.show()
     if args.smoke_test:

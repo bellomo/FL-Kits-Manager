@@ -8,6 +8,7 @@ from PIL import Image
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialogButtonBox, QInputDialog, QMessageBox
 
+from conftest import buttons_without_tooltip
 from flkm.catalog import Competition, Team
 from flkm.logo_import_dialog import LogoImportDialog
 from flkm.logo_pack import LogoFile
@@ -127,3 +128,7 @@ def test_double_click_chooses_and_choose_needs_a_selected_row(qtbot, monkeypatch
     monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: (_ for _ in ()).throw(AssertionError("not asked")))
     d.table.clearSelection()
     d.choose_button.click()
+
+
+def test_every_button_has_a_tooltip(qtbot):
+    assert buttons_without_tooltip(make(qtbot)) == []

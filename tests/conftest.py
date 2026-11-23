@@ -278,3 +278,11 @@ def shirt_photo(
     for colour, (x0, y0, x1, y1) in logos:
         box(x0, y0, x1, y1, colour)
     return Image.fromarray(a)
+
+
+def buttons_without_tooltip(widget) -> list[str]:
+    """The text of every button in widget (hidden ones too) that has no tooltip: every button of the app explains what
+    it does when the mouse is over it."""
+    from PySide6.QtWidgets import QPushButton
+
+    return [b.text() for b in widget.findChildren(QPushButton) if not b.toolTip().strip()]

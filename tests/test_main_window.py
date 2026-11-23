@@ -1,6 +1,7 @@
 """The main window: the team list on the left, the team page on the right. The game folder comes from the command
 line or the settings, else the user chooses it; the chosen folder and the kit view are remembered."""
 
+import json
 import zipfile
 from pathlib import PurePath
 
@@ -9,12 +10,16 @@ from PIL import Image
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox
 
 import flkm
-from conftest import build_ftex, competition_record, dxt5_block, team_record, wesys
+from conftest import build_ftex, buttons_without_tooltip, competition_record, dxt5_block, team_record, wesys
 from flkm import deploy, main_window, settings
 from flkm.game import ftex, process
 from flkm.import_dialog import ImportDialog
 from flkm.logo_import_dialog import LogoImportDialog
 from flkm.main_window import MainWindow
+from flkm.photo_kit_dialog import PhotoKitDialog
+from flkm.photokit import team as photo_team
+from flkm.photokit.maker import makers_folder
+from flkm.photokit.team import MadeTeam
 
 
 def fake_game(game):
@@ -842,3 +847,149 @@ def test_logo_import_cancelled(qtbot, game, tmp_path, dialogs, accept_import, mo
     monkeypatch.setattr(ImportDialog, "exec", lambda d: QDialog.Rejected)
     w.import_pack(put_logos(make_pack(tmp_path)))  # both dialogs cancelled
     assert w.staging.changes == []
+
+
+# --- kits from photos -----------------------------------------------------------------------------------------------
+
+
+class PhotoDialogs:
+    """stands in for the Kits from photos dialog: records how it was opened, makes the kits with the window's make
+    function (unless `made` is given), and answers Add to changes (accept) or Cancel"""
+
+    def __init__(self, monkeypatch):
+        self.opened, self.accept, self.made, self.chosen = [], True, None, None
+        monkeypatch.setattr(PhotoKitDialog, "exec", lambda dialog: self._exec(dialog))
+
+    def _exec(self, dialog):
+        self.opened.append(dialog)
+        if not self.accept:
+            return QDialog.Rejected
+        chosen = self.chosen if self.chosen is not None else dialog.chosen
+        dialog.made = self.made or dialog.make(chosen, dialog.tones())
+        return QDialog.Accepted
+
+
+@pytest.fixture
+def photo_dialogs(monkeypatch):
+    return PhotoDialogs(monkeypatch)
+
+
+def work_folder():
+    return settings.home() / "photokits" / "186"
+
+
+def kit_png(path, size=256, colour=(0, 0, 255)):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (size, size), colour).save(path)
+    return path
+
+
+def large_kit_game(game):
+    """the kit game with a home kit large enough to be drawn folded (a 4 px one cannot)"""
+    textures = kit_game(game) / "SiderAddons" / "livecpk" / "_World" / TEX
+    (textures / "u0186p1.ftex").write_bytes(build_ftex(4, 256, 256, [dxt5_block(0xF800) * (64 * 64)]))
+    return game
+
+
+def test_kits_from_photos_opens_with_the_photos_chosen_last_time(qtbot, game, photo_dialogs, dialogs):
+    w = make_window(qtbot, game_dir=large_kit_game(game))
+    w.tree.select_team(186)
+    shirt = kit_png(work_folder() / "ref" / "home_1.png", 60)
+    (work_folder() / "ref" / "notes.txt").write_text("not a photo")
+    photo_dialogs.accept = False
+    w.page.photos_button.click()
+    d = photo_dialogs.opened[0]
+    assert d.windowTitle() == "Kits from photos: Bologna FC" and d.folder == work_folder()
+    assert d.chosen[("home", "shirt")] == shirt
+    assert list(d.current) == ["p1"]  # the picture of the kit the team wears now
+    assert w.staging.changes == [] and d.made is None and d.view == w.page.view
+
+
+def test_kits_from_photos_for_a_team_never_done_before(qtbot, game, photo_dialogs, dialogs):
+    w = bologna(qtbot, game)
+    photo_dialogs.accept = False
+    w.page.photos_button.click()
+    assert photo_dialogs.opened[0].chosen == {} and work_folder().is_dir()
+
+
+def test_the_kits_made_wait_for_deploy_with_the_header_of_the_kits_they_replace(qtbot, game, photo_dialogs, dialogs):
+    w = bologna(qtbot, game)
+    old = w.catalog.kits(186)[0].texture().data[:0x40]
+    textures = {"p1": kit_png(work_folder() / "home.png"), "p2": kit_png(work_folder() / "away.png")}
+    photo_dialogs.made = MadeTeam(work_folder(), textures, None)
+    w.page.photos_button.click()
+    assert sorted(c.slot for c in w.staging.changes) == ["p1", "p2"]
+    p1 = next(c for c in w.staging.changes if c.slot == "p1")
+    assert w.staging.path(p1).read_bytes()[0x10 + 1 : 0x40] == old[0x10 + 1 :]
+    assert w.pending_label.text() == "2 kits waiting for Deploy" and w.page.cards[0].pending
+
+
+def test_kits_made_that_cannot_be_used(qtbot, game, photo_dialogs, dialogs):
+    w = bologna(qtbot, game)
+    photo_dialogs.made = MadeTeam(work_folder(), {"p1": kit_png(work_folder() / "home.png", 64)}, None)
+    w.page.photos_button.click()
+    assert w.staging.changes == []
+    assert dialogs.warnings[0].startswith("The kits from the photos cannot be used:")
+
+
+def test_the_kits_are_made_from_the_photos_chosen_with_the_crest_waiting_for_deploy(
+    qtbot, game, tmp_path, photo_dialogs, dialogs, monkeypatch
+):
+    w = make_window(qtbot, game_dir=crest_game(game))
+    w.tree.select_team(186)
+    calls = []
+
+    def make_team(files, team_id, folder, makers_dir, crest=None, tones=None):
+        calls.append((files, team_id, folder, makers_dir, crest, tones))
+        return MadeTeam(folder, {}, None)
+
+    monkeypatch.setattr(photo_team, "make_team", make_team)
+    shot = kit_png(tmp_path / "IMG_1.jpg", 60)
+    photo_dialogs.chosen = {("away", "shorts"): shot}
+    w.page.photos_button.click()
+    assert sorted(p.name for p in (work_folder() / "ref").iterdir()) == ["away_shorts_1.jpg"]
+    assert calls[0] == (w.catalog.files, 186, work_folder(), makers_folder(), None, {})
+    dialogs.file = str(kit_png(tmp_path / "bologna.png", 256, (0, 200, 0)))
+    w.page.replace_crest_button.click()
+    w.page.photos_button.click()
+    assert calls[1][4].getpixel((100, 100))[:3] == (0, 200, 0)  # the new crest, not the game's
+
+
+def test_a_kit_that_cannot_be_read_has_no_picture_in_the_dialog(qtbot, game, photo_dialogs, dialogs):
+    textures = large_kit_game(game) / "SiderAddons" / "livecpk" / "_World" / TEX
+    (textures / "u0186p2.ftex").write_bytes(b"damaged")
+    w = make_window(qtbot, game_dir=game)
+    w.tree.select_team(186)
+    photo_dialogs.accept = False
+    w.page.photos_button.click()
+    current = photo_dialogs.opened[0].current
+    assert current["p1"]("unrolled").size == (320, 320)  # the kit now, in the view asked
+    with pytest.raises(ValueError):
+        current["p2"]("folded")  # the dialog says it cannot be read
+
+
+def test_every_button_has_a_tooltip(qtbot, game):
+    w = make_window(qtbot, game_dir=crest_game(game))
+    w.tree.select_team(186)
+    assert w.page.cards and buttons_without_tooltip(w) == []
+
+
+def test_the_dialog_opens_with_the_colours_chosen_last_time(qtbot, game, photo_dialogs, dialogs, monkeypatch):
+    w = bologna(qtbot, game)
+    kits = {"home": {"_draft": {"tone": "back"}}}
+    work_folder().mkdir(parents=True)
+    (work_folder() / "team.json").write_text(json.dumps({"kits": kits}), encoding="utf-8")
+    calls = []
+    monkeypatch.setattr(
+        photo_team, "make_team", lambda *a, tones=None, **k: calls.append(tones) or MadeTeam(a[2], {}, None)
+    )
+    w.page.photos_button.click()
+    assert photo_dialogs.opened[0].tones() == {"home": "back"} and calls == [{"home": "back"}]
+
+
+def test_the_kits_made_last_time_are_there_to_view(qtbot, game, photo_dialogs, dialogs):
+    w = bologna(qtbot, game)
+    kit_png(work_folder() / "home.png")
+    photo_dialogs.accept = False
+    w.page.photos_button.click()
+    assert photo_dialogs.opened[0].made.textures == {"p1": work_folder() / "home.png"}

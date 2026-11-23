@@ -8,6 +8,7 @@ from pathlib import Path
 from PIL import Image
 from PySide6.QtGui import QDesktopServices, QFont
 
+from conftest import buttons_without_tooltip
 from flkm import render
 from flkm.catalog import Team
 from flkm.game.ftex import FtexError
@@ -251,3 +252,18 @@ def test_the_folder_of_the_crest_is_shown_above_the_kits_folder_with_its_own_ope
     assert layout.indexOf(p.crest_folder_row) == layout.indexOf(p.folder_row) - 1
     p.show_crest(None, "No crest in the game files")  # no file: no folder
     assert not p.crest_folder_row.isVisibleTo(p)
+
+
+def test_kits_from_photos_button_asks_the_window(qtbot):
+    p = make_page(qtbot)
+    asked = []
+    p.photos_requested.connect(lambda: asked.append(True))
+    assert p.photos_button.text() == "Kits from photos…"
+    p.photos_button.click()
+    assert asked == [True]
+
+
+def test_every_button_has_a_tooltip(qtbot):
+    p = make_page(qtbot)
+    p.show_team(BOLOGNA, [FakeKit("p1")], {"p2": FakeKit("p2")})
+    assert len(p.cards) == 2 and buttons_without_tooltip(p) == []

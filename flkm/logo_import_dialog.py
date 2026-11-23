@@ -81,6 +81,8 @@ class LogoImportDialog(QDialog):
         self.choose_button.clicked.connect(self._choose_selected)
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.buttons.button(QDialogButtonBox.Ok).setText("Add to changes")
+        self.buttons.button(QDialogButtonBox.Ok).setToolTip("Add the ticked logos to the changes (installed by Deploy)")
+        self.buttons.button(QDialogButtonBox.Cancel).setToolTip("Close without adding any logo")
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
         bottom = QHBoxLayout()
