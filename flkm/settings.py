@@ -14,6 +14,7 @@ class Settings:
     game_dir: str | None = None
     view: str = "folded"  # how kits are shown: folded (as in the game) or unrolled (the texture)
     font_size: int | None = None  # text size in points; None = the system's
+    claude_path: str | None = None  # Claude Code chosen by the user; None = looked for (claude.find)
 
 
 def home() -> Path:
@@ -39,7 +40,10 @@ def load() -> Settings:
         return Settings()
     if font_size is not None and (isinstance(font_size, bool) or font_size not in FONT_SIZES):
         return Settings()
-    return Settings(game_dir=game_dir, view=view, font_size=font_size)
+    claude_path = data.get("claude_path")
+    if not (claude_path is None or isinstance(claude_path, str)):
+        claude_path = None  # only this setting is lost
+    return Settings(game_dir=game_dir, view=view, font_size=font_size, claude_path=claude_path)
 
 
 def save(s: Settings) -> None:

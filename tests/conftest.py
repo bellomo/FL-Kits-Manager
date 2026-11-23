@@ -51,6 +51,24 @@ socket.getaddrinfo = _guarded_getaddrinfo
 
 
 @pytest.fixture(autouse=True)
+def no_claude(monkeypatch):
+    """the tests never run the real Claude Code: nothing is found, and background work runs at once"""
+    from flkm import claude, main_window
+
+    monkeypatch.setattr(claude, "find", lambda saved: None)
+    monkeypatch.setattr(main_window, "run_in_thread", lambda work, done, failed: _now(work, done, failed))
+
+
+def _now(work, done, failed):
+    try:
+        result = work()
+    except Exception as e:  # noqa: BLE001
+        failed(str(e))
+    else:
+        done(result)
+
+
+@pytest.fixture(autouse=True)
 def home(tmp_path, monkeypatch):
     """a temporary app data folder for every test: the user's real settings and staging are never touched"""
     h = tmp_path / "flkm_home"

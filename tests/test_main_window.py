@@ -3,7 +3,7 @@ line or the settings, else the user chooses it; the chosen folder and the kit vi
 
 import json
 import zipfile
-from pathlib import PurePath
+from pathlib import Path, PurePath
 
 import pytest
 from PIL import Image
@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox
 
 import flkm
 from conftest import build_ftex, buttons_without_tooltip, competition_record, dxt5_block, team_record, wesys
-from flkm import deploy, main_window, settings
+from flkm import claude, deploy, main_window, settings
 from flkm.game import ftex, process
 from flkm.history_dialog import DeployHistoryDialog
 from flkm.import_dialog import ImportDialog
@@ -1093,3 +1093,75 @@ def test_the_kits_made_last_time_are_there_to_view(qtbot, game, photo_dialogs, d
     photo_dialogs.accept = False
     w.page.photos_button.click()
     assert photo_dialogs.opened[0].made.textures == {"p1": work_folder() / "home.png"}
+
+
+# --- Claude Code -----------------------------------------------------------------------------------------------------
+
+CLI = claude.Cli(Path("C:/tools/claude.exe"), "2.1.330", "desktop app")
+
+
+def test_without_claude_code_the_status_bar_says_so(qtbot):
+    w = make_window(qtbot)
+    assert w.claude is None and w.claude_label.text() == "Claude Code not found"
+    assert w.claude_label.toolTip().startswith("Claude is optional")
+
+
+def test_claude_code_found(qtbot, monkeypatch):
+    looked = []
+    monkeypatch.setattr(claude, "find", lambda saved: looked.append(saved) or CLI)
+    settings.save(settings.Settings(claude_path="C:/mine/claude.exe"))
+    w = make_window(qtbot)
+    assert looked == ["C:/mine/claude.exe"] and w.claude == CLI
+    assert w.claude_label.text() == "Claude Code 2.1.330" and "Found: desktop app" in w.claude_label.toolTip()
+
+
+def test_a_failure_while_looking_is_not_found(qtbot, monkeypatch):
+    def broken(saved):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(claude, "find", broken)
+    assert make_window(qtbot).claude_label.text() == "Claude Code not found"
+
+
+def test_look_again_forgets_the_program_chosen(qtbot, monkeypatch):
+    settings.save(settings.Settings(claude_path="C:/mine/claude.exe"))
+    looked = []
+    monkeypatch.setattr(claude, "find", lambda saved: looked.append(saved))
+    w = make_window(qtbot)
+    w.find_claude_action.trigger()
+    assert looked == ["C:/mine/claude.exe", None] and settings.load().claude_path is None
+
+
+def test_choose_claude_code(qtbot, dialogs, monkeypatch):
+    w = make_window(qtbot)
+    monkeypatch.setattr(claude, "check", lambda path: claude.Cli(Path(path), "2.0.1", "chosen"))
+    dialogs.file = ""
+    w.choose_claude_action.trigger()  # cancelled
+    assert w.claude is None
+    dialogs.file = "C:/tools/claude.exe"
+    w.choose_claude_action.trigger()
+    assert w.claude.version == "2.0.1" and settings.load().claude_path == str(Path("C:/tools/claude.exe"))
+    assert w.claude_label.text() == "Claude Code 2.0.1"
+    assert w.statusBar().currentMessage().startswith("Using Claude Code 2.0.1: ")
+
+
+def test_choose_a_program_that_is_not_claude_code(qtbot, dialogs, monkeypatch):
+    monkeypatch.setattr(claude, "find", lambda saved: CLI)
+    w = make_window(qtbot)
+    monkeypatch.setattr(claude, "check", lambda path: None)
+    dialogs.file = "C:/tools/notepad.exe"
+    w.choose_claude_action.trigger()
+    assert dialogs.warnings == ["notepad.exe is not Claude Code: it did not answer `claude --version`."]
+    assert w.claude == CLI and w.claude_label.text() == "Claude Code 2.1.330" and settings.load().claude_path is None
+
+
+def test_a_failure_while_checking_the_program_chosen(qtbot, dialogs, monkeypatch):
+    w = make_window(qtbot)
+
+    def broken(path):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(claude, "check", broken)
+    dialogs.file = "C:/tools/claude.exe"
+    w.choose_claude_action.trigger()
+    assert len(dialogs.warnings) == 1 and w.claude is None

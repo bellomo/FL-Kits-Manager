@@ -57,6 +57,14 @@ def test_text_size_out_of_range_gives_the_defaults(home):
         assert settings.load() == settings.Settings()
 
 
+def test_claude_path_is_remembered(home):
+    assert settings.Settings().claude_path is None  # looked for
+    settings.save(settings.Settings(game_dir="D:/game", claude_path="C:/tools/claude.exe"))
+    assert settings.load() == settings.Settings(game_dir="D:/game", claude_path="C:/tools/claude.exe")
+    (home / "settings.json").write_text('{"game_dir": "D:/game", "claude_path": 7}', encoding="utf-8")
+    assert settings.load() == settings.Settings(game_dir="D:/game")  # a bad Claude path does not lose the rest
+
+
 def test_a_game_folder_has_sider(game, tmp_path):
     assert not settings.is_game_dir(tmp_path / "nowhere")
     assert not settings.is_game_dir(game)

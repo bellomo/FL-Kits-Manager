@@ -31,14 +31,14 @@ from PySide6.QtWidgets import (
 )
 
 import flkm
-from flkm import catalog, deploy, logo_pack, pack, settings
+from flkm import catalog, claude, deploy, logo_pack, pack, settings
 from flkm.competition_page import CompetitionPage
 from flkm.competition_tree import CompetitionTree
 from flkm.game import ftex, kits, logos, process
 from flkm.history_dialog import DeployHistoryDialog, describe
 from flkm.import_dialog import ImportDialog
 from flkm.logo_import_dialog import LogoImportDialog
-from flkm.photo_kit_dialog import PhotoKitDialog
+from flkm.photo_kit_dialog import PhotoKitDialog, run_in_thread
 from flkm.photokit.maker import makers_folder
 from flkm.photokit import team as photo_team
 from flkm.staging import Staging
@@ -144,6 +144,9 @@ class MainWindow(QMainWindow):
         self.pending_label = QLabel()
         self.pending_label.setStyleSheet(f"color: {PENDING_COLOUR}; font-weight: bold")
         self.statusBar().addPermanentWidget(self.pending_label)
+        self.claude: claude.Cli | None = None
+        self.claude_label = QLabel()
+        self.statusBar().addPermanentWidget(self.claude_label)
 
         menu = self.menuBar().addMenu("&File")
         self.game_action = QAction("&Game folder…", self)
@@ -182,6 +185,15 @@ class MainWindow(QMainWindow):
             changes.addAction(action)
         changes.addSeparator()
         changes.addAction(self.relink_action)
+        claude_menu = self.menuBar().addMenu("C&laude")
+        self.choose_claude_action = QAction("&Choose Claude Code…", self)
+        self.choose_claude_action.setStatusTip(
+            "Choose the claude program (claude.exe) the app uses for its Claude features"
+        )
+        self.find_claude_action = QAction("&Look for Claude Code again", self)
+        self.find_claude_action.setStatusTip("Forget the program chosen and look for Claude Code where it is installed")
+        claude_menu.addAction(self.choose_claude_action)
+        claude_menu.addAction(self.find_claude_action)
         self.larger_text_action.triggered.connect(lambda: self._step_text(+1))
         self.smaller_text_action.triggered.connect(lambda: self._step_text(-1))
         self.default_text_action.triggered.connect(lambda: self.set_text_size(None))
@@ -198,6 +210,8 @@ class MainWindow(QMainWindow):
         self.undo_action.triggered.connect(self.undo_deploy)
         self.history_action.triggered.connect(self.show_history)
         self.relink_action.triggered.connect(self.relink)
+        self.choose_claude_action.triggered.connect(self.choose_claude)
+        self.find_claude_action.triggered.connect(lambda: self.find_claude(forget=True))
         self.relink_button.clicked.connect(self.relink)
         self.tree.team_selected.connect(self.show_team)
         self.page.view_changed.connect(self._view_changed)
@@ -210,6 +224,7 @@ class MainWindow(QMainWindow):
         self.comp_page.replace_requested.connect(self.replace_logo)
         self.comp_page.discard_requested.connect(self.keep_logo)
 
+        self.find_claude()
         if game_dir is not None:
             self.open_game(Path(game_dir))
         elif self.settings.game_dir and settings.is_game_dir(Path(self.settings.game_dir)):
@@ -682,6 +697,56 @@ class MainWindow(QMainWindow):
 
     def _view_changed(self, view: str) -> None:
         self._save(view=view)
+
+    # --- Claude Code --------------------------------------------------------------------------------------------------
+
+    def find_claude(self, forget: bool = False) -> None:
+        """looks for Claude Code in the background (forget: the program chosen before is not tried first)"""
+        if forget:
+            self._save(claude_path=None)
+        self.claude_label.setText("Looking for Claude Code…")
+        saved = self.settings.claude_path
+        run_in_thread(lambda: claude.find(saved), self._claude_found, lambda message: self._claude_found(None))
+
+    def _claude_found(self, cli: claude.Cli | None) -> None:
+        self.claude = cli
+        self.claude_label.setText(claude.describe(cli))
+        if cli:
+            self.claude_label.setStyleSheet("")
+            self.claude_label.setToolTip(
+                f"{cli.path}\nFound: {cli.source}. Used for the Claude features; Claude > Choose Claude Code… to use "
+                "another one."
+            )
+        else:
+            self.claude_label.setStyleSheet("color: gray")
+            self.claude_label.setToolTip(
+                "Claude is optional: without it everything else works. To use the Claude features, install Claude "
+                "Code (or the Claude desktop app) and sign in, or choose claude.exe with Claude > Choose Claude Code…"
+            )
+
+    def choose_claude(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Choose Claude Code", "", "Claude Code (claude.exe claude.cmd claude);;All files (*)"
+        )
+        if not path:
+            return
+        self.claude_label.setText("Checking Claude Code…")
+        run_in_thread(
+            lambda: claude.check(path),
+            lambda cli: self._claude_chosen(path, cli),
+            lambda m: self._claude_chosen(path, None),
+        )
+
+    def _claude_chosen(self, path: str, cli: claude.Cli | None) -> None:
+        if cli is None:
+            self._claude_found(self.claude)  # the one used before stays
+            QMessageBox.warning(
+                self, APP_NAME, f"{Path(path).name} is not Claude Code: it did not answer `claude --version`."
+            )
+            return
+        self._save(claude_path=str(cli.path))
+        self._claude_found(cli)
+        self.statusBar().showMessage(f"Using {claude.describe(cli)}: {cli.path}")
 
     def _save(self, **changes) -> None:
         self.settings = dataclasses.replace(self.settings, **changes)

@@ -228,6 +228,11 @@ With the Claude Code CLI installed and signed in, the app can search the web for
 kits it generates. Before every run it shows the model, the estimated tokens and the estimated share of your usage
 limits, and warns you when the run could use up what is left. Without Claude, everything else works.
 
+The status bar says whether the app found Claude Code. It looks for it on `PATH`, where its installers put it
+(`%USERPROFILE%\.local\bin`, `%APPDATA%\npm`) and inside the Claude desktop app (the newest version); a program
+counts only when `claude --version` answers. **Claude → Choose Claude Code…** picks the program by hand (remembered),
+**Look for Claude Code again** forgets it and looks again.
+
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 <a id="roadmap"></a>
@@ -284,8 +289,9 @@ Development rules (test-driven, 100% line and branch coverage, no network in tes
 | `flkm/logo_pack.py` | Logos in a pack: by game file name or by team or competition name; the files of the chosen ones |
 | `flkm/staging.py` | Kits chosen to replace the game's (textures or whole kits), kept until Deploy (`%APPDATA%\FLKitsManager\staging`) |
 | `flkm/deploy.py` | Deploy, Undo (back to any deploy, checking for files changed since), Re-apply an undone deploy, clear the history, Re-apply links, status of the app's links |
+| `flkm/claude.py` | Claude Code (the claude CLI): where it is looked for, its version |
 | `flkm/render.py` | Kit pictures from a texture: unrolled, and folded (front and back as in the game) |
-| `flkm/settings.py` | Settings (`%APPDATA%\FLKitsManager\settings.json`): game folder, kit view, text size |
+| `flkm/settings.py` | Settings (`%APPDATA%\FLKitsManager\settings.json`): game folder, kit view, text size, Claude Code chosen |
 | `flkm/__main__.py` | `python -m flkm` and the PyInstaller entry point |
 | `flkm/catalog.py` | Team catalog of the installed game: teams by federation, country and league, search, kits of a team |
 | `flkm/game/sider_ini.py` | sider.ini: livecpk roots in priority order, Lua modules, Mod Studio world; the app's root |
